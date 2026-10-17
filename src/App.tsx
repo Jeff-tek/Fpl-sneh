@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, BarChart3, Check, ChevronDown, CircleHelp, Clipboard, Clock3, Download, ExternalLink, Gauge, LoaderCircle, Menu, RotateCcw, Search, Settings2, Shield, Sparkles, Trophy, Users, X } from 'lucide-react'
 import { demoSquad, managerNames } from './data/demo'
 import { defaultWeights, expectedPoints, formationName, formations, optimizeSquad, type Formation, type Player, type Weights } from './lib/engine'
@@ -44,7 +44,6 @@ function App() {
   const [searchValue, setSearchValue] = useState('2432')
   const [managerName, setManagerName] = useState('Sneh United')
   const [isDemo, setIsDemo] = useState(true)
-  const [squadDirty, setSquadDirty] = useState(false)
   const [modal, setModal] = useState<Modal>(null)
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null)
   const [busy, setBusy] = useState(false)
@@ -57,11 +56,37 @@ function App() {
   const [lookahead, setLookahead] = useState(6)
   const [sortBy, setSortBy] = useState<SortKey>('overall')
   const [demoMenu, setDemoMenu] = useState(false)
+  const [preferModelXI, setPreferModelXI] = useState(false)
   const bootHandled = useRef(false)
 
   const lineup = useMemo(() => optimizeSquad(squad, weights, formation), [squad, weights, formation])
   const starterIds = useMemo(() => new Set(lineup.starters.map((player) => player.id)), [lineup])
   const panelSquad = useMemo(() => squad.map((player) => ({ ...player, isStarter: starterIds.has(player.id) })), [squad, starterIds])
+  // Your real FPL line-up, straight from the official picks: positions 1-11 are
+  // the XI, 12-15 are the bench in substitution order. This is the single source
+  // of truth for the pitch, the bench strip AND the live tracker, so a player can
+  // never be listed as a starter and a substitute at the same time.
+  const officialSquad = useMemo(() => {
+    if (!picks.length) return null
+    const ordered = squad
+      .map((player, index) => ({ player, order: player.pickPosition ?? index + 1 }))
+      .sort((a, b) => a.order - b.order)
+    const officialStarters = ordered.filter((entry) => entry.player.isStarter).map((entry) => entry.player)
+    const officialBench = ordered.filter((entry) => !entry.player.isStarter).map((entry) => entry.player)
+    return officialStarters.length === 11 && officialBench.length === 4 ? { starters: officialStarters, bench: officialBench } : null
+  }, [squad, picks])
+  const activeOfficial = preferModelXI ? null : officialSquad
+  const displayStarters = activeOfficial ? activeOfficial.starters : lineup.starters
+  const displayBench = activeOfficial ? activeOfficial.bench : lineup.bench
+  const displayCaptainId = activeOfficial ? squad.find((player) => player.isCaptain)?.id : lineup.captain?.id
+  const displayViceId = activeOfficial ? squad.find((player) => player.isViceCaptain)?.id : lineup.viceCaptain?.id
+  const displayCaptain = displayStarters.find((player) => player.id === displayCaptainId)
+  const displayVice = displayStarters.find((player) => player.id === displayViceId)
+  const displayFormation: Formation = {
+    def: displayStarters.filter((player) => player.position === 'DEF').length,
+    mid: displayStarters.filter((player) => player.position === 'MID').length,
+    fwd: displayStarters.filter((player) => player.position === 'FWD').length,
+  }
   const marketGW = bootstrap ? nextGameweek(bootstrap) : gameweek
   const market = useMemo(() => (bootstrap ? buildMarket(bootstrap, fixtures, marketGW) : []), [bootstrap, fixtures, marketGW])
   // Only treat players with meaningful minutes as credible transfer targets;
@@ -85,13 +110,10 @@ function App() {
   )
   const squadValue = squad.reduce((sum, player) => sum + player.price, 0)
   const paneTitle = { squad: 'Squad overview', moves: 'Transfer room', fixtures: 'Fixture ticker', chips: 'Chip strategy' }[activePane]
-  const xPts = lineup.starters.reduce((sum, player) => sum + expectedPoints(player, weights), 0) + (lineup.captain ? expectedPoints(lineup.captain, weights) : 0)
-  // Official picks drive the live panel only while the squad is unedited;
-  // after a local transfer we fall back to the model XI so nothing is orphaned.
-  const useOfficialPicks = picks.length > 0 && !squadDirty
-  const liveSquad = useOfficialPicks ? squad : panelSquad
-  const livePicks = useOfficialPicks ? picks : []
-  const liveCaptainId = useOfficialPicks ? picks.find((pick) => pick.is_captain)?.element : lineup.captain?.id
+  const xPts = displayStarters.reduce((sum, player) => sum + expectedPoints(player, weights), 0) + (displayCaptain ? expectedPoints(displayCaptain, weights) : 0)
+  // The live total follows the XI we are actually showing, keeping the official
+  // multiplier (captain x2) so it matches your real FPL score.
+  const liveMultiplier = (id: number) => picks.find((pick) => pick.element === id)?.multiplier ?? (id === displayCaptainId ? 2 : 1)
   const deadline = deadlineInfo((bootstrap?.events?.find((event) => event.is_next) ?? bootstrap?.events?.find((event) => event.is_current))?.deadline_time)
   const rankDisplay = entry?.summary_overall_rank ? entry.summary_overall_rank.toLocaleString('en-GB') : '—'
 
@@ -115,7 +137,6 @@ function App() {
     setBank(id === 1 ? 1.2 : 0.8)
     setFormation(undefined)
     setIsDemo(true)
-    setSquadDirty(false)
     localStorage.setItem('fpl-sneh-manager-id', String(id))
     setDemoMenu(false)
     flash(`${managerNames[id]} loaded`)
@@ -159,7 +180,6 @@ function App() {
       setGameweek(gw)
       setFormation(undefined)
       setIsDemo(false)
-      setSquadDirty(false)
       localStorage.setItem('fpl-sneh-manager-id', id)
       localStorage.setItem(`fpl-sneh-squad:${id}`, JSON.stringify(loadedSquad))
       flash(`Loaded ${loadedEntry.name || `Team ${id}`} · GW${gw}`)
@@ -203,7 +223,6 @@ function App() {
     setBank((value) => Number((value - cost).toFixed(1)))
     setFormation(undefined)
     setIsDemo(false)
-    setSquadDirty(true)
     persistSquad(next)
     setModal(null)
     flash(`${incoming.name} replaces ${outgoing.name}`)
@@ -327,6 +346,18 @@ function App() {
     { id: 'chips', label: 'Chips', icon: Sparkles },
   ] as const
 
+  function onTabKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    const index = paneTabs.findIndex((tab) => tab.id === activePane)
+    const nextIndex = event.key === 'ArrowRight' ? (index + 1) % paneTabs.length
+      : event.key === 'ArrowLeft' ? (index - 1 + paneTabs.length) % paneTabs.length
+        : event.key === 'Home' ? 0 : event.key === 'End' ? paneTabs.length - 1 : -1
+    if (nextIndex < 0) return
+    event.preventDefault()
+    const nextPane = paneTabs[nextIndex].id
+    setActivePane(nextPane)
+    document.getElementById(`tab-${nextPane}`)?.focus()
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -344,6 +375,10 @@ function App() {
         </header>
 
         <div className="page-wrap">
+          <nav className="workspace-tabs" role="tablist" aria-label="FPL workspace" onKeyDown={onTabKeyDown}>
+            {paneTabs.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} className={`workspace-tab ${activePane === id ? 'active' : ''}`} type="button" role="tab" aria-selected={activePane === id} aria-controls="workspace-panel" tabIndex={activePane === id ? 0 : -1} onClick={() => setActivePane(id)}><Icon size={17} />{label}</button>)}
+          </nav>
+
           <section className="page-heading">
             <div><div className="eyebrow heading-kicker"><span className="kicker-bar" /> THE WEEKLY BRIEF <span className="kicker-divider">·</span> PREMIER LEAGUE 2026/27</div><h1>{paneTitle}<span className="heading-period">.</span></h1><p>A sharper read on your next 90 minutes.</p></div>
             <div className="week-control"><span className="week-tag"><span className="week-live" /> GAMEWEEK {String(gameweek).padStart(2, '0')}</span><button className="deadline-button"><Clock3 size={15} /> Deadline in <b>{deadline.countdown}</b></button></div>
@@ -356,48 +391,33 @@ function App() {
           </section>
 
           <section className="metric-grid">
-            <article className="metric-card primary-metric"><div className="metric-top"><span>PROJECTED XI</span><Sparkles size={15} /></div><div className="metric-value">{xPts.toFixed(1)}<small> pts</small></div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> model</span>{formationName(lineup.formation)} formation</div><div className="metric-spark"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
+            <article className="metric-card primary-metric"><div className="metric-top"><span>PROJECTED XI</span><Sparkles size={15} /></div><div className="metric-value">{xPts.toFixed(1)}<small> pts</small></div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {activeOfficial ? 'your XI' : 'model'}</span>{formationName(displayFormation)} formation</div><div className="metric-spark"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
             <article className="metric-card"><div className="metric-top"><span>IN THE BANK</span><ArrowLeftRight size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(bank)}</div><div className="metric-foot">Free transfers <b>1</b> · hits not applied</div><div className="transfer-meter"><span /></div></article>
             <article className="metric-card"><div className="metric-top"><span>SQUAD VALUE</span><Gauge size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(squadValue)}</div><div className="metric-foot">Squad health <b className="green-text">{health.grade}</b></div><div className="mini-bars"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
             <article className="metric-card rank-metric"><div className="metric-top"><span>OVERALL RANK</span><Trophy size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{rankDisplay}</div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {isDemo ? 'demo' : 'live'}</span> {entry?.summary_event_points ? `${entry.summary_event_points} pts this GW` : 'season to date'}</div><div className="rank-line"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div></article>
           </section>
 
-          <nav className="workspace-tabs" role="tablist" aria-label="FPL workspace" onKeyDown={(event) => {
-            const index = paneTabs.findIndex((tab) => tab.id === activePane)
-            const nextIndex = event.key === 'ArrowRight' ? (index + 1) % paneTabs.length
-              : event.key === 'ArrowLeft' ? (index - 1 + paneTabs.length) % paneTabs.length
-                : event.key === 'Home' ? 0 : event.key === 'End' ? paneTabs.length - 1 : -1
-            if (nextIndex >= 0) {
-              event.preventDefault()
-              const nextPane = paneTabs[nextIndex].id
-              setActivePane(nextPane)
-              document.getElementById(`tab-${nextPane}`)?.focus()
-            }
-          }}>
-            {paneTabs.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} className={`workspace-tab ${activePane === id ? 'active' : ''}`} type="button" role="tab" aria-selected={activePane === id} aria-controls="workspace-panel" tabIndex={activePane === id ? 0 : -1} onClick={() => setActivePane(id)}><Icon size={15} />{label}</button>)}
-          </nav>
-
           <section className={`dashboard-grid ${activePane === 'squad' ? '' : 'planning-view'}`} role="tabpanel" id="workspace-panel" aria-labelledby={`tab-${activePane}`}>
             <div className="pitch-column">
-              <div className="section-head"><div><div className="section-title-line"><h2>Starting XI</h2><span className="live-label"><span className="live-pulse" /> LIVE</span></div><p>{formationName(lineup.formation)} formation <span>·</span> sorted by expected points</p></div><div className="section-actions"><button className="plain-action" onClick={() => setModal('share')}><ExternalLink size={15} /> Share</button><button className="square-action" aria-label="Edit squad" onClick={() => setModal('editor')}><Users size={16} /></button></div></div>
-              <div className="pitch" aria-label={`Starting lineup in ${formationName(lineup.formation)} formation`}>
+              <div className="section-head"><div><div className="section-title-line"><h2>{activeOfficial ? 'Your Starting XI' : 'Model Starting XI'}</h2><span className="live-label"><span className="live-pulse" /> LIVE</span></div><p>{formationName(displayFormation)} · {activeOfficial ? 'exactly as submitted on FPL · bench in substitution order' : "the model's highest-scoring XI"}</p></div><div className="section-actions">{officialSquad && <div className="segmented" role="group" aria-label="Lineup source"><button className={!preferModelXI ? 'active' : ''} onClick={() => setPreferModelXI(false)}>Your XI</button><button className={preferModelXI ? 'active' : ''} onClick={() => setPreferModelXI(true)}>Model XI</button></div>}<button className="plain-action" onClick={() => setModal('share')}><ExternalLink size={15} /> Share</button><button className="square-action" aria-label="Edit squad" onClick={() => setModal('editor')}><Users size={16} /></button></div></div>
+              <div className="formation-strip"><span className="strip-label">SHAPE</span>{officialSquad && <button className={!preferModelXI ? 'formation-pill selected' : 'formation-pill'} onClick={() => { setPreferModelXI(false); setFormation(undefined) }} title="Show the XI you submitted">Your XI</button>}{formations.map((option) => <button key={formationName(option)} className={preferModelXI && formationName(displayFormation) === formationName(option) ? 'formation-pill selected' : 'formation-pill'} onClick={() => { setFormation(option); setPreferModelXI(true) }} title={`Model XI in ${formationName(option)}`}>{formationName(option)}</button>)}<button className="reset-formation" onClick={() => { setFormation(undefined); setPreferModelXI(false) }} title="Reset to your XI and the optimal shape"><RotateCcw size={13} /></button></div>
+              <div className="pitch" aria-label={`${activeOfficial ? 'Your' : 'Model'} starting lineup in ${formationName(displayFormation)} formation`}>
                 <div className="pitch-stripe" /><div className="pitch-half-line" /><div className="pitch-circle" /><div className="pitch-box pitch-box-top" /><div className="pitch-box pitch-box-bottom" />
                 <div className="pitch-players">
-                  <PlayerRow players={lineup.starters.filter((player) => player.position === 'FWD')} weights={weights} captain={lineup.captain?.id} vice={lineup.viceCaptain?.id} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
-                  <PlayerRow players={lineup.starters.filter((player) => player.position === 'MID')} weights={weights} captain={lineup.captain?.id} vice={lineup.viceCaptain?.id} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
-                  <PlayerRow players={lineup.starters.filter((player) => player.position === 'DEF')} weights={weights} captain={lineup.captain?.id} vice={lineup.viceCaptain?.id} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
-                  <PlayerRow players={lineup.starters.filter((player) => player.position === 'GK')} weights={weights} captain={lineup.captain?.id} vice={lineup.viceCaptain?.id} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
+                  <PlayerRow players={displayStarters.filter((player) => player.position === 'FWD')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
+                  <PlayerRow players={displayStarters.filter((player) => player.position === 'MID')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
+                  <PlayerRow players={displayStarters.filter((player) => player.position === 'DEF')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
+                  <PlayerRow players={displayStarters.filter((player) => player.position === 'GK')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
                 </div>
-                <div className="pitch-caption"><span><span className="pitch-dot" /> HOME ADVANTAGE APPLIED</span><span>MODEL v1.4</span></div>
+                <div className="pitch-caption"><span><span className="pitch-dot" /> HOME ADVANTAGE APPLIED</span><span>{activeOfficial ? 'YOUR FPL XI' : 'MODEL v1.4'}</span></div>
               </div>
-              <div className="formation-strip"><span className="strip-label">SHAPE</span>{formations.map((option) => <button key={formationName(option)} className={formationName(lineup.formation) === formationName(option) ? 'formation-pill selected' : 'formation-pill'} onClick={() => setFormation(option)} title={`Preview ${formationName(option)}`}>{formationName(option)}</button>)}<button className="reset-formation" onClick={() => setFormation(undefined)} title="Return to optimal formation"><RotateCcw size={13} /></button></div>
-              <div className="bench-block"><div className="bench-heading"><div><span className="bench-index">01</span><b>Bench order</b><small>Auto-ranked by xPts</small></div><button className="text-button" onClick={() => setModal('editor')}>Edit squad <ArrowLeftRight size={13} /></button></div><div className="bench-list">{lineup.bench.map((player, index) => <button className="bench-player" key={player.id} onClick={() => { setSelectedPlayer(player); setModal('player') }}><span className="bench-number">{index + 1}</span><span className={`mini-jersey club-${player.clubCode.toLowerCase()}`}>{player.shirt.slice(0, 2)}</span><span className="bench-name"><b>{player.name}</b><small>{player.clubCode} · {player.position}</small></span><FixtureBadge difficulty={player.fdr[0] || 3} /><span className="bench-points">{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></span></button>)}</div></div>
+              <div className="bench-block"><div className="bench-heading"><div><span className="bench-index">01</span><b>Bench</b><small>{activeOfficial ? 'Your FPL bench, in substitution order' : 'Model bench, ranked by xPts'}</small></div><button className="text-button" onClick={() => setModal('editor')}>Edit squad <ArrowLeftRight size={13} /></button></div><div className="bench-row">{displayBench.map((player, index) => <button className="bench-slot" key={player.id} onClick={() => { setSelectedPlayer(player); setModal('player') }}><span className="bench-order">{index + 1}</span><span className={`bench-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt.slice(0, 2)}</span><span className="bench-slot-name">{player.name}</span><span className="bench-slot-meta">{player.clubCode} · {player.position}</span><FixtureBadge difficulty={player.fdr[0] || 3} /><span className="bench-slot-pts">{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></span></button>)}</div></div>
             </div>
 
             <aside className="insight-column">
-              <section className="captain-panel"><div className="panel-head"><span>CAPTAINCY CALL</span><button className="help-button" title="The highest projected player receives the armband"><CircleHelp size={15} /></button></div><div className="captain-feature"><span className="captain-avatar">{lineup.captain?.shirt}</span><span className="captain-copy"><b>{lineup.captain?.name}<i>C</i></b><small>{lineup.captain?.club} · {lineup.captain?.position}</small></span><span className="captain-score">{lineup.captain ? expectedPoints(lineup.captain, weights).toFixed(1) : '—'}<small> xPts</small></span></div><div className="captain-reason"><span className="reason-mark"><Sparkles size={13} /></span><span>Top model score <b>{lineup.captain?.form.toFixed(1)} form</b> and a favorable fixture.</span></div><div className="vice-row"><span className="vice-label">VICE-CAPTAIN</span><b>{lineup.viceCaptain?.name}</b><span>{lineup.viceCaptain ? expectedPoints(lineup.viceCaptain, weights).toFixed(1) : '—'} xPts</span></div></section>
+              <section className="captain-panel"><div className="panel-head"><span>{activeOfficial ? 'YOUR CAPTAIN' : 'CAPTAINCY CALL'}</span><button className="help-button" title="The highest projected player receives the armband"><CircleHelp size={15} /></button></div><div className="captain-feature"><span className="captain-avatar">{displayCaptain?.shirt}</span><span className="captain-copy"><b>{displayCaptain?.name}<i>C</i></b><small>{displayCaptain?.club} · {displayCaptain?.position}</small></span><span className="captain-score">{displayCaptain ? expectedPoints(displayCaptain, weights).toFixed(1) : '—'}<small> xPts</small></span></div>{lineup.captain && displayCaptain && lineup.captain.id !== displayCaptain.id ? <div className="captain-reason"><span className="reason-mark"><Sparkles size={13} /></span><span>Model prefers <b>{lineup.captain.name}</b> (+{(expectedPoints(lineup.captain, weights) - expectedPoints(displayCaptain, weights)).toFixed(1)} xPts over your armband)</span></div> : <div className="captain-reason"><span className="reason-mark"><Sparkles size={13} /></span><span>Top model score <b>{(displayCaptain?.form ?? 0).toFixed(1)} form</b> and a favorable fixture.</span></div>}<div className="vice-row"><span className="vice-label">VICE-CAPTAIN</span><b>{displayVice?.name}</b><span>{displayVice ? expectedPoints(displayVice, weights).toFixed(1) : '—'} xPts</span></div></section>
 
-              <LivePanel squad={liveSquad} picks={livePicks} captainId={liveCaptainId} liveStats={useOfficialPicks ? liveStats : {}} liveFixture={liveFixture} liveFeedLoaded={liveFeedLoaded} liveStatus={liveStatus} gameweek={gameweek} onToggle={() => setLiveStatus(liveStatus === 'live' ? 'paused' : 'live')} />
+              <LivePanel starters={displayStarters} bench={displayBench} stats={liveStats} multiplierOf={liveMultiplier} liveFixture={liveFixture} liveFeedLoaded={liveFeedLoaded} liveStatus={liveStatus} gameweek={gameweek} onToggle={() => setLiveStatus(liveStatus === 'live' ? 'paused' : 'live')} />
 
               <section className="planning-panel">
                 {activePane === 'moves' && <TransfersPane squad={squad} market={market} weights={weights} bank={bank} defaultHorizon={TRANSFER_HORIZON} minMinutes={minMinutes} onApply={applyTransfer} />}

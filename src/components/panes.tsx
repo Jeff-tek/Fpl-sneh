@@ -3,7 +3,7 @@ import { ArrowLeftRight, ArrowRight, Check, Clock3, Info, RotateCcw, ShieldAlert
 import { getTransferIdeas, horizonPoints, type Player, type Weights } from '../lib/engine'
 import type { ChipAdvice, SquadHealth } from '../lib/fpl/chips'
 import type { TickerRow } from '../lib/fpl/ticker'
-import type { EntryHistory, LiveElement, Pick } from '../lib/fpl/data'
+import type { EntryHistory, LiveElement } from '../lib/fpl/data'
 import { fixtureTone, flagLabel, flagTone, money } from '../lib/ui'
 
 /* ------------------------------------------------------------------ */
@@ -316,44 +316,33 @@ export function ChipsPane({
 /* ------------------------------------------------------------------ */
 
 export function LivePanel({
-  squad, picks, captainId, liveStats, liveFixture, liveFeedLoaded, liveStatus, gameweek, onToggle,
+  starters, bench, stats, multiplierOf, liveFixture, liveFeedLoaded, liveStatus, gameweek, onToggle,
 }: {
-  squad: Player[]
-  picks: Pick[]
-  captainId?: number
-  liveStats: Record<number, LiveElement['stats']>
+  starters: Player[]
+  bench: Player[]
+  stats: Record<number, LiveElement['stats']>
+  multiplierOf: (id: number) => number
   liveFixture: { home: string; away: string; homeScore: number; awayScore: number; minute: number } | null
   liveFeedLoaded: boolean
   liveStatus: 'live' | 'paused'
   gameweek: number
   onToggle: () => void
 }) {
-  const official = picks.length > 0
-  const statsOf = (player: Player) => liveStats[player.id]
-  const pointsOf = (player: Player) => statsOf(player)?.total_points ?? player.livePoints ?? 0
+  // The XI and bench are handed in already split, so this panel can never
+  // disagree with the pitch about who is starting.
+  const pointsOf = (player: Player) => stats[player.id]?.total_points ?? player.livePoints ?? 0
+  const total = starters.reduce((sum, player) => sum + pointsOf(player) * multiplierOf(player.id), 0)
+  const benchTotal = bench.reduce((sum, player) => sum + pointsOf(player), 0)
 
-  const entries = squad.map((player, index) => {
-    const pick = picks.find((item) => item.element === player.id)
-    return {
-      player,
-      starter: official ? (pick?.position ?? 99) <= 11 : Boolean(player.isStarter),
-      rank: official ? pick?.position ?? 99 : index,
-      multiplier: official ? pick?.multiplier ?? 1 : (player.id === captainId ? 2 : 1),
-    }
-  })
-  const starters = entries.filter((entry) => entry.starter).sort((a, b) => a.rank - b.rank)
-  const bench = entries.filter((entry) => !entry.starter).sort((a, b) => a.rank - b.rank)
-  const total = starters.reduce((sum, entry) => sum + pointsOf(entry.player) * entry.multiplier, 0)
-  const benchTotal = bench.reduce((sum, entry) => sum + pointsOf(entry.player), 0)
-
-  const renderRow = (entry: { player: Player; multiplier: number }, onBench: boolean) => {
-    const stats = statsOf(entry.player)
-    const detail = [entry.player.clubCode, entry.player.position, `${stats?.minutes ?? 0}′`, `${stats?.goals_scored ?? 0}G ${stats?.assists ?? 0}A`, `${stats?.bonus ?? 0} bns`].join('  ·  ')
+  const renderRow = (player: Player, onBench: boolean) => {
+    const live = stats[player.id]
+    const multiplier = onBench ? 1 : multiplierOf(player.id)
+    const detail = [player.clubCode, player.position, `${live?.minutes ?? 0}′`, `${live?.goals_scored ?? 0}G ${live?.assists ?? 0}A`, `${live?.bonus ?? 0} bns`].join('  ·  ')
     return (
-      <div className={`live-row ${onBench ? 'bench-row' : ''}`} key={entry.player.id}>
-        <span className={`live-mult ${entry.multiplier > 1 ? 'armband' : ''}`}>{entry.multiplier > 1 ? `×${entry.multiplier}` : ''}</span>
-        <span className="live-name"><b>{entry.player.name}</b><small>{detail}</small></span>
-        <span className="live-pts">{pointsOf(entry.player) * entry.multiplier}</span>
+      <div className={`live-row ${onBench ? 'bench-row' : ''}`} key={player.id}>
+        <span className={`live-mult ${multiplier > 1 ? 'armband' : ''}`}>{multiplier > 1 ? `×${multiplier}` : ''}</span>
+        <span className="live-name"><b>{player.name}</b><small>{detail}</small></span>
+        <span className="live-pts">{pointsOf(player) * multiplier}</span>
       </div>
     )
   }
@@ -377,11 +366,11 @@ export function LivePanel({
         </div>
       ) : <div className="match-strip"><span className="empty-live">No matches currently in progress</span></div>}
 
-      <div className="live-section-head"><span>STARTING XI</span><em>{official ? 'official picks' : 'model XI'}</em></div>
-      <div className="live-table">{starters.map((entry) => renderRow(entry, false))}</div>
+      <div className="live-section-head"><span>STARTING XI</span><em>{starters.length} starting</em></div>
+      <div className="live-table">{starters.map((player) => renderRow(player, false))}</div>
 
       <div className="live-section-head bench"><span>BENCH</span><em>{benchTotal} pts on the bench</em></div>
-      <div className="live-table bench-table">{bench.map((entry) => renderRow(entry, true))}</div>
+      <div className="live-table bench-table">{bench.map((player) => renderRow(player, true))}</div>
     </section>
   )
 }
