@@ -109,8 +109,9 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   app.get('/', (_req, res) => res.status(200).send('FPL sneh API server is ready. Run the Vite client on port 5173.'))
 }
 
-// The app also runs as a Vercel serverless function (api/[...path].ts), where it
-// must not bind a port, so only listen when we are not on that platform.
+// The app also runs as a Vercel serverless function (api/index.ts, reached via
+// the "/api/(.*)" rewrite in vercel.json), where it must not bind a port, so
+// only listen when we are not on that platform.
 if (!process.env.VERCEL) {
   app.listen(port, '0.0.0.0', () => {
     console.log(`FPL sneh server listening on http://0.0.0.0:${port}`)
