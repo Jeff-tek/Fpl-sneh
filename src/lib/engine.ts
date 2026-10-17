@@ -36,6 +36,14 @@ export type Player = {
   starts?: number
   bonus?: number
   bps?: number
+  teamGames?: number
+  // Expected per-match points from the point sources an attacking model misses:
+  // defensive contributions, clean sheets, goals conceded, saves and bonus.
+  defconPoints?: number
+  cleanSheetPoints?: number
+  concededPoints?: number
+  savePoints?: number
+  bonusPoints?: number
   isLive?: boolean
   livePoints?: number
   // Squad membership metadata
@@ -45,7 +53,7 @@ export type Player = {
   pickPosition?: number
 }
 
-export type Weights = { form: number; xG: number; xA: number; ict: number }
+export type Weights = { form: number; xG: number; xA: number; ict: number; defence: number; defcon: number; bonus: number }
 export type Formation = { def: number; mid: number; fwd: number }
 
 export const formations: Formation[] = [
@@ -55,21 +63,62 @@ export const formations: Formation[] = [
   { def: 4, mid: 5, fwd: 1 }, { def: 5, mid: 2, fwd: 3 },
 ]
 
-export const defaultWeights: Weights = { form: 0.35, xG: 0.3, xA: 0.2, ict: 0.15 }
+export const defaultWeights: Weights = { form: 0.35, xG: 0.3, xA: 0.2, ict: 0.15, defence: 0.6, defcon: 0.6, bonus: 0.4 }
 
-/** Fixture-independent per-match performance score from the tunable model. */
+/**
+ * Fixture-independent per-match performance score from the tunable model.
+ *
+ * The first four weights are normalized against each other and produce an
+ * attacking score. `defence`, `defcon` and `bonus` are trust multipliers on
+ * terms that already arrive in points units (a clean sheet is worth 4, a
+ * defensive contribution 2), so they scale how much weight the model gives to
+ * the point sources it would otherwise be blind to - goalkeepers, defenders
+ * and defensive midfielders in particular.
+ */
 export function baseScore(player: Player, weights: Weights): number {
   const total = weights.form + weights.xG + weights.xA + weights.ict || 1
-  return (
+  const craft = (
     player.form * weights.form +
     player.xG * 12 * weights.xG +
     player.xA * 10 * weights.xA +
     (player.ict / 12) * weights.ict
   ) / total
+  // Fall back to 0 for the newer axes so a weights object saved before they
+  // existed degrades to the old attacking-only model instead of producing NaN.
+  const defence = weights.defence ?? 0
+  const defcon = weights.defcon ?? 0
+  const bonus = weights.bonus ?? 0
+  const defensive = (player.cleanSheetPoints ?? 0) + (player.concededPoints ?? 0) + (player.savePoints ?? 0)
+  return craft +
+    defensive * defence +
+    (player.defconPoints ?? 0) * defcon +
+    (player.bonusPoints ?? 0) * bonus
 }
 
 function fixtureFactor(difficulty: number, isHome: boolean): number {
   return 1 + (3 - difficulty) * 0.075 + (isHome ? 0.08 : -0.04)
+}
+
+export type ScorePart = { label: string; value: number }
+
+/**
+ * The same arithmetic as `baseScore`, itemised so the model can explain itself
+ * in the player card. Keep this in step with `baseScore` - it is the display
+ * mirror of that function, not an independent calculation.
+ */
+export function scoreBreakdown(player: Player, weights: Weights): ScorePart[] {
+  const total = weights.form + weights.xG + weights.xA + weights.ict || 1
+  return [
+    { label: 'Recent form', value: (player.form * weights.form) / total },
+    { label: 'Goal threat', value: (player.xG * 12 * weights.xG) / total },
+    { label: 'Creativity', value: (player.xA * 10 * weights.xA) / total },
+    { label: 'ICT index', value: ((player.ict / 12) * weights.ict) / total },
+    { label: 'Clean sheet', value: (player.cleanSheetPoints ?? 0) * (weights.defence ?? 0) },
+    { label: 'Saves', value: (player.savePoints ?? 0) * (weights.defence ?? 0) },
+    { label: 'Goals conceded', value: (player.concededPoints ?? 0) * (weights.defence ?? 0) },
+    { label: 'Def. contributions', value: (player.defconPoints ?? 0) * (weights.defcon ?? 0) },
+    { label: 'Bonus potential', value: (player.bonusPoints ?? 0) * (weights.bonus ?? 0) },
+  ]
 }
 
 export function expectedPoints(player: Player, weights: Weights): number {
@@ -121,6 +170,8 @@ export type TransferIdea = {
   incoming: Player
   gain: number
   cost: number
+  /** Points paid for this move: 0 when it can be made with a free transfer. */
+  hit: number
   horizonOut: number
   horizonIn: number
   injuryExit: boolean
@@ -137,11 +188,16 @@ const isFlagged = (player: Player) =>
  * Real, transfer-market based suggestions. Candidates are drawn from the full
  * bootstrap player universe (`market`) and always exclude players you already
  * own, so a suggestion can never involve someone in your squad.
+ *
+ * `freeTransfers` makes the suggestion hit-aware: with a free transfer banked
+ * the first move is free, otherwise it has to clear the 4-point hit before it
+ * is worth recommending at all.
  */
-export function getTransferIdeas(squad: Player[], market: Player[], weights: Weights, bank: number, horizon = 5, minMinutes = 0) {
+export function getTransferIdeas(squad: Player[], market: Player[], weights: Weights, bank: number, horizon = 5, minMinutes = 0, freeTransfers = 1) {
   const owned = new Set(squad.map((player) => player.id))
   const clubCounts: Record<string, number> = {}
   for (const player of squad) clubCounts[player.clubCode] = (clubCounts[player.clubCode] || 0) + 1
+  const singleHit = freeTransfers >= 1 ? 0 : 4
 
   const singles: TransferIdea[] = []
   for (const outgoing of squad) {
@@ -158,18 +214,20 @@ export function getTransferIdeas(squad: Player[], market: Player[], weights: Wei
       if (resultingClub > 3) continue
       const horizonIn = horizonPoints(incoming, weights, horizon)
       const gain = horizonIn - horizonOut
-      if (gain <= 0.4 && !injuryExit) continue
+      if (gain <= 0.4 + singleHit && !injuryExit) continue
+      const net = gain - singleHit
       singles.push({
         outgoing,
         incoming,
         gain: Number(gain.toFixed(2)),
         cost: Number((incoming.price - (outgoing.sellPrice ?? outgoing.price)).toFixed(2)),
+        hit: singleHit,
         horizonOut: Number(horizonOut.toFixed(1)),
         horizonIn: Number(horizonIn.toFixed(1)),
         injuryExit,
         reason: injuryExit
-          ? `Exit ${outgoing.name}, who is flagged${outgoing.news ? ` (${outgoing.news})` : ''}. ${incoming.name} adds ${gain > 0 ? '+' : ''}${gain.toFixed(1)} xPts over ${horizon} GWs.`
-          : `${incoming.name} projects +${gain.toFixed(1)} xPts over the next ${horizon} GWs versus ${outgoing.name}.`,
+          ? `Exit ${outgoing.name}, who is flagged${outgoing.news ? ` (${outgoing.news})` : ''}. ${incoming.name} adds ${gain > 0 ? '+' : ''}${gain.toFixed(1)} xPts over ${horizon} GWs${singleHit ? ` (net ${net >= 0 ? '+' : ''}${net.toFixed(1)} after a -${singleHit})` : ''}.`
+          : `${incoming.name} projects +${gain.toFixed(1)} xPts over the next ${horizon} GWs versus ${outgoing.name}${singleHit ? ` — net +${net.toFixed(1)} once the -${singleHit} hit is paid` : ''}.`,
       })
     }
   }
@@ -178,7 +236,9 @@ export function getTransferIdeas(squad: Player[], market: Player[], weights: Wei
     .sort((a, b) => b.gain + (b.injuryExit ? 2 : 0) - (a.gain + (a.injuryExit ? 2 : 0)))
     .slice(0, 6)
 
-  const doubles: Array<{ first: TransferIdea; second: TransferIdea; gain: number; cost: number }> = []
+  // A second move is only free when a second free transfer is actually banked.
+  const secondHit = freeTransfers >= 2 ? 0 : 4
+  const doubles: Array<{ first: TransferIdea; second: TransferIdea; gain: number; cost: number; hit: number }> = []
   for (let first = 0; first < singles.length; first += 1) {
     for (let second = first + 1; second < singles.length; second += 1) {
       const a = singles[first]
@@ -188,8 +248,8 @@ export function getTransferIdeas(squad: Player[], market: Player[], weights: Wei
       if (a.incoming.id === b.outgoing.id || b.incoming.id === a.outgoing.id) continue
       const combinedCost = a.cost + b.cost
       const combinedGain = a.gain + b.gain
-      if (combinedCost <= bank && combinedGain > 1) {
-        doubles.push({ first: a, second: b, gain: Number(combinedGain.toFixed(2)), cost: Number(combinedCost.toFixed(2)) })
+      if (combinedCost <= bank && combinedGain > 1 + secondHit) {
+        doubles.push({ first: a, second: b, gain: Number(combinedGain.toFixed(2)), cost: Number(combinedCost.toFixed(2)), hit: secondHit })
       }
     }
   }

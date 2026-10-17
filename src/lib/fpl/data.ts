@@ -30,6 +30,13 @@ export type BootstrapElement = {
   assists: number
   clean_sheets: number
   penalties_order: number | null
+  // Defensive-contribution inputs (2026/27 scores 2 pts for 10+ CBIT as a
+  // defender, or 12+ including recoveries as a midfielder/forward).
+  clearances_blocks_interceptions?: number
+  tackles?: number
+  recoveries?: number
+  saves?: number
+  expected_goals_conceded?: string | number
 }
 
 export type BootstrapTeam = {
@@ -200,15 +207,77 @@ function upcomingRuns(fixtures: Fixture[], teamId: number, targetGW: number, tea
  * Market + squad builders
  * ------------------------------------------------------------------ */
 
+/** Poisson tail P(X >= k) for a per-match action rate. */
+function poissonAtLeast(lambda: number, k: number): number {
+  if (!(lambda > 0)) return 0
+  let cdf = 0
+  let term = Math.exp(-lambda)
+  for (let i = 0; i < k; i += 1) {
+    cdf += term
+    term *= lambda / (i + 1)
+  }
+  return clamp(1 - cdf, 0, 1)
+}
+
+export type DefensiveExpectation = {
+  defconPoints: number
+  cleanSheetPoints: number
+  concededPoints: number
+  savePoints: number
+  bonusPoints: number
+}
+
+/**
+ * Per-match expected value of the point sources an attacking model can't see:
+ * defensive contributions, clean sheets, goals-conceded deductions, saves and
+ * bonus. Everything is divided by *team games played* rather than by the
+ * player's own minutes, so rotation risk and cameo appearances are priced in
+ * automatically (a 20-minute-a-week bench player cannot look like a nailed 90).
+ */
+export function defensiveExpectation(element: BootstrapElement, teamGames: number, position: Position): DefensiveExpectation {
+  const games = Math.max(1, teamGames)
+  const minutes = num(element.minutes)
+  // Share of available minutes actually played - the gate for clean-sheet
+  // points, which must not accrue to someone who never gets on the pitch.
+  const playFactor = clamp(minutes / (games * 90), 0, 1)
+  const concededPerGame = num(element.expected_goals_conceded) / games
+  const keeper = position === 'GK'
+  const defender = position === 'DEF'
+
+  const defconThreshold = defender ? 10 : 12
+  const defconActions = defender
+    ? num(element.clearances_blocks_interceptions) + num(element.tackles)
+    : num(element.clearances_blocks_interceptions) + num(element.tackles) + num(element.recoveries)
+  // Defensive-contribution and bonus rates are the noisiest inputs we have, so
+  // shrink them towards zero until the sample is large enough to trust.
+  const reliability = games / (games + 3)
+  const defconPoints = keeper ? 0 : 2 * poissonAtLeast(defconActions / games, defconThreshold) * reliability
+
+  const cleanSheetValue = keeper || defender ? 4 : position === 'MID' ? 1 : 0
+  const cleanSheetPoints = cleanSheetValue * Math.exp(-concededPerGame) * playFactor
+  const concededPoints = keeper || defender ? -concededPerGame / 2 : 0
+  const savePoints = keeper ? num(element.saves) / games / 3 : 0
+  // Bonus is lumpy in small samples, so damp it: one 3-bonus haul should not
+  // dominate a projection the way an underlying rate would.
+  const bonusPoints = 0.75 * Math.min(1.2, num(element.bonus) / games) * reliability
+
+  return { defconPoints, cleanSheetPoints, concededPoints, savePoints, bonusPoints }
+}
+
 export function playerFromElement(
   element: BootstrapElement,
   teamMap: Map<number, BootstrapTeam>,
   fixtures: Fixture[],
   targetGW: number,
+  teamGames?: Map<number, number>,
 ): Player {
   const team = teamMap.get(element.team)
   const runs = upcomingRuns(fixtures, element.team, targetGW, teamMap)
   const minutes = element.minutes || 0
+  const position = positionFromElement(element.element_type)
+  const teamGameCount = teamGames?.get(element.team)
+    ?? fixtures.filter((fixture) => fixture.finished && (fixture.team_h === element.team || fixture.team_a === element.team)).length
+  const defensive = defensiveExpectation(element, teamGameCount, position)
   // Season expected stats divided by games played, floored at one game. Raw
   // per-90 values are unusable here: FPL reports absurd rates for cameo
   // players (a 3-minute outing can read as 12+ xG/90), which would corrupt
@@ -223,7 +292,7 @@ export function playerFromElement(
     clubCode: team?.short_name || 'PL',
     teamId: element.team,
     shirt: element.web_name.slice(0, 2).toUpperCase(),
-    position: positionFromElement(element.element_type),
+    position,
     price: element.now_cost / 10,
     form: num(element.form),
     xG: perGameGoals,
@@ -242,13 +311,23 @@ export function playerFromElement(
     starts: element.starts || 0,
     bonus: element.bonus || 0,
     bps: element.bps || 0,
+    teamGames: teamGameCount,
+    ...defensive,
   }
 }
 
 /** Every player in the game, priced and contextualised against upcoming fixtures. */
 export function buildMarket(bootstrap: BootstrapStatic, fixtures: Fixture[], targetGW: number): Player[] {
   const teamMap = new Map((bootstrap.teams || []).map((team) => [team.id, team]))
-  return (bootstrap.elements || []).map((element) => playerFromElement(element, teamMap, fixtures, targetGW))
+  // Games each club has completed - the denominator for every per-match rate.
+  const teamGames = new Map<number, number>()
+  for (const team of bootstrap.teams || []) teamGames.set(team.id, 0)
+  for (const fixture of fixtures) {
+    if (!fixture.finished) continue
+    teamGames.set(fixture.team_h, (teamGames.get(fixture.team_h) || 0) + 1)
+    teamGames.set(fixture.team_a, (teamGames.get(fixture.team_a) || 0) + 1)
+  }
+  return (bootstrap.elements || []).map((element) => playerFromElement(element, teamMap, fixtures, targetGW, teamGames))
 }
 
 /** Maps the manager's picks onto the real market universe. */
@@ -277,4 +356,30 @@ export function flagsFrom(element: BootstrapElement): { label: string; tone: str
   if (element.status === 'd') return { label: `${element.chance_of_playing_next_round ?? 25}%`, tone: 'amber' }
   if (element.status === 'n') return { label: 'N/A', tone: 'amber' }
   return null
+}
+
+export type ElementSummary = {
+  history: Array<{
+    round: number
+    total_points: number
+    minutes: number
+    was_home: boolean
+  }>
+}
+
+/**
+ * Real per-match points for a single player. FPL's "form" is a smoothed 30-day
+ * average, so the only way to show an honest trend is the element summary
+ * endpoint - one request, fired when the player card is opened.
+ */
+export async function fetchElementSummary(id: number): Promise<ElementSummary | null> {
+  try {
+    const response = await fetch(`/api/fpl/element-summary/${id}/`)
+    if (!response.ok) return null
+    const payload = (await response.json()) as Partial<ElementSummary>
+    if (!Array.isArray(payload.history)) return null
+    return { history: payload.history }
+  } catch {
+    return null
+  }
 }

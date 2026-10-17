@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, BarChart3, Check, ChevronDown, CircleHelp, Clipboard, Clock3, Download, ExternalLink, Gauge, LoaderCircle, Menu, RotateCcw, Search, Settings2, Shield, Sparkles, Trophy, Users, X } from 'lucide-react'
 import { demoSquad, managerNames } from './data/demo'
-import { defaultWeights, expectedPoints, formationName, formations, optimizeSquad, type Formation, type Player, type Weights } from './lib/engine'
+import { defaultWeights, expectedPoints, formationName, formations, optimizeSquad, scoreBreakdown, type Formation, type Player, type Weights } from './lib/engine'
 import {
-  buildMarket, buildSquad, currentGameweek, nextGameweek,
-  type BootstrapStatic, type Entry, type EntryHistory, type Fixture, type LiveElement, type Pick,
+  buildMarket, buildSquad, currentGameweek, fetchElementSummary, nextGameweek,
+  type BootstrapStatic, type ElementSummary, type Entry, type EntryHistory, type Fixture, type LiveElement, type Pick,
 } from './lib/fpl/data'
 import { buildFixtureTicker } from './lib/fpl/ticker'
 import { evaluateChips, evaluateSquadHealth } from './lib/fpl/chips'
+import { MAX_FREE_TRANSFERS, deriveFreeTransfers } from './lib/fpl/freeTransfers'
 import { fixtureTone, money, positionLabels } from './lib/ui'
 import { ChipsPane, FixturesPane, LivePanel, TransfersPane, type SortKey } from './components/panes'
 import './styles.css'
@@ -92,6 +93,9 @@ function App() {
   // Only treat players with meaningful minutes as credible transfer targets;
   // the bar rises as the season progresses.
   const minMinutes = Math.min(450, Math.max(180, (gameweek - 1) * 45))
+  // FPL doesn't publish your banked free transfers; derive them from history so
+  // the transfer suggestions know whether a move is free or costs -4.
+  const freeTransfers = useMemo(() => deriveFreeTransfers(history, gameweek), [history, gameweek])
   const tickerRows = useMemo(() => (bootstrap ? buildFixtureTicker(bootstrap.teams || [], fixtures, gameweek, lookahead) : []), [bootstrap, fixtures, gameweek, lookahead])
   const ownedClubs = useMemo(() => new Set(squad.map((player) => player.clubCode)), [squad])
   const chipAdvices = useMemo(
@@ -392,7 +396,7 @@ function App() {
 
           <section className="metric-grid">
             <article className="metric-card primary-metric"><div className="metric-top"><span>PROJECTED XI</span><Sparkles size={15} /></div><div className="metric-value">{xPts.toFixed(1)}<small> pts</small></div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {activeOfficial ? 'your XI' : 'model'}</span>{formationName(displayFormation)} formation</div><div className="metric-spark"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
-            <article className="metric-card"><div className="metric-top"><span>IN THE BANK</span><ArrowLeftRight size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(bank)}</div><div className="metric-foot">Free transfers <b>1</b> · hits not applied</div><div className="transfer-meter"><span /></div></article>
+            <article className="metric-card"><div className="metric-top"><span>IN THE BANK</span><ArrowLeftRight size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(bank)}</div><div className="metric-foot">{freeTransfers.known ? <>Free transfers <b>{freeTransfers.available}</b> of {MAX_FREE_TRANSFERS}</> : <>Free transfers <b>—</b> · no history yet</>} · {freeTransfers.lastHit > 0 ? `-${freeTransfers.lastHit} last GW` : 'no hits taken'}</div><div className="transfer-meter"><span style={{ width: `${(freeTransfers.available / MAX_FREE_TRANSFERS) * 100}%` }} /></div></article>
             <article className="metric-card"><div className="metric-top"><span>SQUAD VALUE</span><Gauge size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(squadValue)}</div><div className="metric-foot">Squad health <b className="green-text">{health.grade}</b></div><div className="mini-bars"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
             <article className="metric-card rank-metric"><div className="metric-top"><span>OVERALL RANK</span><Trophy size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{rankDisplay}</div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {isDemo ? 'demo' : 'live'}</span> {entry?.summary_event_points ? `${entry.summary_event_points} pts this GW` : 'season to date'}</div><div className="rank-line"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div></article>
           </section>
@@ -409,7 +413,7 @@ function App() {
                   <PlayerRow players={displayStarters.filter((player) => player.position === 'DEF')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
                   <PlayerRow players={displayStarters.filter((player) => player.position === 'GK')} weights={weights} captain={displayCaptainId} vice={displayViceId} onSelect={(player) => { setSelectedPlayer(player); setModal('player') }} />
                 </div>
-                <div className="pitch-caption"><span><span className="pitch-dot" /> HOME ADVANTAGE APPLIED</span><span>{activeOfficial ? 'YOUR FPL XI' : 'MODEL v1.4'}</span></div>
+                <div className="pitch-caption"><span><span className="pitch-dot" /> HOME ADVANTAGE APPLIED</span><span>{activeOfficial ? 'YOUR FPL XI' : 'MODEL v1.5'}</span></div>
               </div>
               <div className="bench-block"><div className="bench-heading"><div><span className="bench-index">01</span><b>Bench</b><small>{activeOfficial ? 'Your FPL bench, in substitution order' : 'Model bench, ranked by xPts'}</small></div><button className="text-button" onClick={() => setModal('editor')}>Edit squad <ArrowLeftRight size={13} /></button></div><div className="bench-row">{displayBench.map((player, index) => <button className="bench-slot" key={player.id} onClick={() => { setSelectedPlayer(player); setModal('player') }}><span className="bench-order">{index + 1}</span><span className={`bench-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt.slice(0, 2)}</span><span className="bench-slot-name">{player.name}</span><span className="bench-slot-meta">{player.clubCode} · {player.position}</span><FixtureBadge difficulty={player.fdr[0] || 3} /><span className="bench-slot-pts">{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></span></button>)}</div></div>
             </div>
@@ -420,20 +424,20 @@ function App() {
               <LivePanel starters={displayStarters} bench={displayBench} stats={liveStats} multiplierOf={liveMultiplier} liveFixture={liveFixture} liveFeedLoaded={liveFeedLoaded} liveStatus={liveStatus} gameweek={gameweek} onToggle={() => setLiveStatus(liveStatus === 'live' ? 'paused' : 'live')} />
 
               <section className="planning-panel">
-                {activePane === 'moves' && <TransfersPane squad={squad} market={market} weights={weights} bank={bank} defaultHorizon={TRANSFER_HORIZON} minMinutes={minMinutes} onApply={applyTransfer} />}
+                {activePane === 'moves' && <TransfersPane squad={squad} market={market} weights={weights} bank={bank} defaultHorizon={TRANSFER_HORIZON} minMinutes={minMinutes} freeTransfers={freeTransfers.available} onApply={applyTransfer} />}
                 {activePane === 'fixtures' && <FixturesPane rows={tickerRows} ownedClubs={ownedClubs} lookahead={lookahead} onLookahead={setLookahead} sortBy={sortBy} onSort={setSortBy} />}
                 {activePane === 'chips' && <ChipsPane advices={chipAdvices} health={health} history={history} currentGW={gameweek} bank={bank} />}
               </section>
             </aside>
           </section>
 
-          <footer className="dashboard-footer"><span><span className="footer-led" /> EXPLAINABLE MODEL <i>·</i> xPts considers form, xG, xA, ICT, FDR & venue · {market.length} players scored.</span><button onClick={() => setModal('settings')}>Tune your model <Settings2 size={13} /></button></footer>
+          <footer className="dashboard-footer"><span><span className="footer-led" /> EXPLAINABLE MODEL <i>·</i> xPts = form, xG, xA & ICT, plus clean sheets, defensive contributions, saves, goals conceded, bonus, FDR &amp; venue · {market.length} players scored.</span><button onClick={() => setModal('settings')}>Tune your model <Settings2 size={13} /></button></footer>
         </div>
       </main>
       {notice && <div className="toast"><Check size={15} />{notice}</div>}
       {modal === 'settings' && <SettingsModal weights={weights} onChange={setWeights} onClose={() => setModal(null)} />}
-      {modal === 'editor' && <EditorModal squad={squad} market={market} bank={bank} onSwap={applyTransfer} onClose={() => setModal(null)} />}
-      {modal === 'player' && selectedPlayer && <PlayerModal player={selectedPlayer} weights={weights} onClose={() => setModal(null)} />}
+      {modal === 'editor' && <EditorModal squad={squad} market={market} bank={bank} freeTransfers={freeTransfers.available} onSwap={applyTransfer} onClose={() => setModal(null)} />}
+      {modal === 'player' && selectedPlayer && <PlayerModal player={selectedPlayer} weights={weights} market={market} onClose={() => setModal(null)} />}
       {modal === 'share' && <ShareModal onDownload={() => shareLineup(true)} onCopy={() => shareLineup(false)} onClose={() => setModal(null)} />}
     </div>
   )
@@ -451,11 +455,14 @@ function SettingsModal({ weights, onChange, onClose }: { weights: Weights; onCha
     { key: 'xG', name: 'Expected goals', note: 'Underlying goal threat · xG per 90' },
     { key: 'xA', name: 'Expected assists', note: 'Chance creation · xA per 90' },
     { key: 'ict', name: 'ICT index', note: 'Influence, creativity & threat' },
+    { key: 'defence', name: 'Clean sheets & saves', note: 'Goalkeeper and defender points · anyone can be dialled down' },
+    { key: 'defcon', name: 'Defensive contributions', note: '2 pts for 10+ CBIT (defenders) or 12+ including recoveries' },
+    { key: 'bonus', name: 'Bonus potential', note: 'Expected bonus points per match' },
   ]
-  return <ModalShell title="Model settings" eyebrow="EXPECTED POINTS MODEL" onClose={onClose}><p className="modal-intro">Adjust what the model values. Weights are normalized automatically, so their relative balance matters more than the total.</p><div className="weight-list">{controls.map(({ key, name, note }) => <label className="weight-control" key={key}><span><b>{name}</b><small>{note}</small></span><input type="range" min="0" max="100" step="1" value={Math.round(weights[key] * 100)} onChange={(event) => onChange({ ...weights, [key]: Number(event.target.value) / 100 })} /><strong>{Math.round(weights[key] * 100)}%</strong></label>)}</div><div className="model-note"><Gauge size={16} /><span><b>Fixture context is always on</b><small>FDR adjusts the projection, with a separate home/away modifier.</small></span></div><div className="modal-actions"><button className="secondary-action" onClick={() => onChange(defaultWeights)}><RotateCcw size={14} /> Reset defaults</button><button className="primary-action" onClick={onClose}>Apply model</button></div></ModalShell>
+  return <ModalShell title="Model settings" eyebrow="EXPECTED POINTS MODEL" onClose={onClose}><p className="modal-intro">Adjust what the model values. The first four weights are balanced against each other; clean sheets, defensive contributions and bonus are trust multipliers on points the model would otherwise miss.</p><div className="weight-list">{controls.map(({ key, name, note }) => <label className="weight-control" key={key}><span><b>{name}</b><small>{note}</small></span><input type="range" min="0" max="100" step="1" value={Math.round(weights[key] * 100)} onChange={(event) => onChange({ ...weights, [key]: Number(event.target.value) / 100 })} /><strong>{Math.round(weights[key] * 100)}%</strong></label>)}</div><div className="model-note"><Gauge size={16} /><span><b>Fixture context is always on</b><small>FDR adjusts the projection, with a separate home/away modifier. Set a trust multiplier to 0% to ignore that point source entirely.</small></span></div><div className="modal-actions"><button className="secondary-action" onClick={() => onChange(defaultWeights)}><RotateCcw size={14} /> Reset defaults</button><button className="primary-action" onClick={onClose}>Apply model</button></div></ModalShell>
 }
 
-function EditorModal({ squad, market, bank, onSwap, onClose }: { squad: Player[]; market: Player[]; bank: number; onSwap: (outgoing: number, incoming: number) => void; onClose: () => void }) {
+function EditorModal({ squad, market, bank, freeTransfers, onSwap, onClose }: { squad: Player[]; market: Player[]; bank: number; freeTransfers: number; onSwap: (outgoing: number, incoming: number) => void; onClose: () => void }) {
   const [outgoingId, setOutgoingId] = useState(squad[0]?.id || 0)
   const outgoing = squad.find((player) => player.id === outgoingId)
   const options = useMemo(() => market
@@ -465,11 +472,31 @@ function EditorModal({ squad, market, bank, onSwap, onClose }: { squad: Player[]
   useEffect(() => setIncomingId(options[0]?.id || 0), [outgoingId, options])
   const incoming = options.find((player) => player.id === incomingId)
   const cost = incoming && outgoing ? incoming.price - (outgoing.sellPrice ?? outgoing.price) : 0
-  return <ModalShell title="Edit squad" eyebrow="PRE-DEADLINE TRANSFERS" onClose={onClose}><p className="modal-intro">FPL hides pending moves until the deadline. Preview your new squad here; your Best XI updates as soon as you apply the swap.</p><div className="bank-ribbon"><span>AVAILABLE BANK</span><b>{money(bank)}</b><small>One free transfer · hit cost not included</small></div><label className="select-label">Player to sell<select value={outgoingId} onChange={(event) => setOutgoingId(Number(event.target.value))}>{squad.map((player) => <option value={player.id} key={player.id}>{player.name} · {player.clubCode} · sell {money(player.sellPrice ?? player.price)}</option>)}</select></label><div className="editor-swap-mark"><ArrowDownRight size={17} /></div><label className="select-label">Replacement<select value={incomingId} onChange={(event) => setIncomingId(Number(event.target.value))}>{options.map((player) => <option value={player.id} key={player.id}>{player.name} · {player.clubCode} · {money(player.price)} · {player.points} pts</option>)}</select></label><div className={`cost-summary ${cost > bank ? 'over-budget' : ''}`}><span>Net spend</span><b>{cost > 0 ? '+' : ''}{money(cost)}</b><span>Bank after move</span><b>{money(bank - cost)}</b></div><div className="modal-actions"><button className="secondary-action" onClick={onClose}>Cancel</button><button className="primary-action" disabled={!incoming || cost > bank} onClick={() => onSwap(outgoingId, incomingId)}><Check size={14} /> Apply pending transfer</button></div></ModalShell>
+  return <ModalShell title="Edit squad" eyebrow="PRE-DEADLINE TRANSFERS" onClose={onClose}><p className="modal-intro">FPL hides pending moves until the deadline. Preview your new squad here; your Best XI updates as soon as you apply the swap.</p><div className="bank-ribbon"><span>AVAILABLE BANK</span><b>{money(bank)}</b><small>{freeTransfers} free transfer{freeTransfers === 1 ? '' : 's'} banked · hit cost not included</small></div><label className="select-label">Player to sell<select value={outgoingId} onChange={(event) => setOutgoingId(Number(event.target.value))}>{squad.map((player) => <option value={player.id} key={player.id}>{player.name} · {player.clubCode} · sell {money(player.sellPrice ?? player.price)}</option>)}</select></label><div className="editor-swap-mark"><ArrowDownRight size={17} /></div><label className="select-label">Replacement<select value={incomingId} onChange={(event) => setIncomingId(Number(event.target.value))}>{options.map((player) => <option value={player.id} key={player.id}>{player.name} · {player.clubCode} · {money(player.price)} · {player.points} pts</option>)}</select></label><div className={`cost-summary ${cost > bank ? 'over-budget' : ''}`}><span>Net spend</span><b>{cost > 0 ? '+' : ''}{money(cost)}</b><span>Bank after move</span><b>{money(bank - cost)}</b></div><div className="modal-actions"><button className="secondary-action" onClick={onClose}>Cancel</button><button className="primary-action" disabled={!incoming || cost > bank} onClick={() => onSwap(outgoingId, incomingId)}><Check size={14} /> Apply pending transfer</button></div></ModalShell>
 }
 
-function PlayerModal({ player, weights, onClose }: { player: Player; weights: Weights; onClose: () => void }) {
-  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={player.change >= 0 ? 'green-text' : 'red-text'}>{player.change >= 0 ? '+' : ''}{player.change.toFixed(1)} this GW</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{player.xG.toFixed(2)}</b></div><div><span>xA / 90</span><b>{player.xA.toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{player.ict.toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>Points trend · last 6</small></div><div className="history-chart">{[0.52, 0.7, 0.46, 0.83, 0.62, Math.min(1, player.form / 10)].map((height, index) => <span key={index} style={{ height: `${height * 100}%` }}><i>GW{index + 1}</i></span>)}</div></div></ModalShell>
+function PlayerModal({ player, weights, market, onClose }: { player: Player; weights: Weights; market: Player[]; onClose: () => void }) {
+  const [history, setHistory] = useState<ElementSummary['history'] | null>(null)
+  const [loading, setLoading] = useState(true)
+  // Demo squads carry synthetic ids, so only fetch when this id really is this
+  // player in the live market - otherwise we would show a stranger's history.
+  const isReal = useMemo(() => market.some((candidate) => candidate.id === player.id && candidate.name === player.name), [market, player.id, player.name])
+  useEffect(() => {
+    if (!isReal) { setHistory([]); setLoading(false); return }
+    let disposed = false
+    setLoading(true)
+    setHistory(null)
+    void fetchElementSummary(player.id).then((summary) => {
+      if (disposed) return
+      setHistory(summary?.history ?? [])
+      setLoading(false)
+    })
+    return () => { disposed = true }
+  }, [isReal, player.id])
+  const recent = (history ?? []).slice(-6)
+  const peak = Math.max(1, ...recent.map((row) => row.total_points))
+  const parts = scoreBreakdown(player, weights).filter((part) => Math.abs(part.value) >= 0.05)
+  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={player.change >= 0 ? 'green-text' : 'red-text'}>{player.change >= 0 ? '+' : ''}{player.change.toFixed(1)} this GW</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{player.xG.toFixed(2)}</b></div><div><span>xA / 90</span><b>{player.xA.toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{player.ict.toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Why the model rates him</b><small>Per-match xPts contribution</small></div><ul className="model-bits">{parts.map((part) => <li key={part.label}><span>{part.label}</span><b className={part.value < 0 ? 'red-text' : 'green-text'}>{part.value >= 0 ? '+' : ''}{part.value.toFixed(2)}</b></li>)}</ul></div><div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>{recent.length ? `Last ${recent.length} gameweeks · actual points` : 'Actual points · per gameweek'}</small></div>{loading ? <p className="chart-empty">Loading recent returns…</p> : recent.length ? <div className="history-chart">{recent.map((row) => <span key={row.round} style={{ height: `${Math.max(6, (row.total_points / peak) * 100)}%` }} title={`GW${row.round}: ${row.total_points} pts`}><em>{row.total_points}</em><i>GW{row.round}</i></span>)}</div> : <p className="chart-empty">No match data for this player yet.</p>}</div></ModalShell>
 }
 
 function ShareModal({ onDownload, onCopy, onClose }: { onDownload: () => void; onCopy: () => void; onClose: () => void }) {

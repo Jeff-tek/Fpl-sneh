@@ -42,15 +42,17 @@ type TransfersPaneProps = {
   bank: number
   defaultHorizon: number
   minMinutes: number
+  /** Free transfers banked for the next deadline - makes suggestions hit-aware. */
+  freeTransfers: number
   onApply: (outgoingId: number, incomingId: number) => void
 }
 
-export function TransfersPane({ squad, market, weights, bank, defaultHorizon, minMinutes, onApply }: TransfersPaneProps) {
+export function TransfersPane({ squad, market, weights, bank, defaultHorizon, minMinutes, freeTransfers, onApply }: TransfersPaneProps) {
   const [sandbox, setSandbox] = useState(false)
   // Transfers are a long-term decision, so the default look-ahead is deliberately
   // wide and the manager can stretch it further.
   const [horizon, setHorizon] = useState(defaultHorizon)
-  const ideas = useMemo(() => getTransferIdeas(squad, market, weights, bank, horizon, minMinutes), [squad, market, weights, bank, horizon, minMinutes])
+  const ideas = useMemo(() => getTransferIdeas(squad, market, weights, bank, horizon, minMinutes, freeTransfers), [squad, market, weights, bank, horizon, minMinutes, freeTransfers])
   const [sellId, setSellId] = useState<number>(squad[0]?.id ?? 0)
   const sell = squad.find((player) => player.id === sellId) ?? squad[0]
   const owned = useMemo(() => new Set(squad.map((player) => player.id)), [squad])
@@ -72,7 +74,7 @@ export function TransfersPane({ squad, market, weights, bank, defaultHorizon, mi
   return (
     <div className="transfers-pane">
       <div className="pane-head">
-        <div><span className="eyebrow">TRANSFER MARKET</span><h3>Long-term transfer ideas</h3><p>Ranked by projected points across the next {horizon} gameweeks — not just this week · players you already own are never suggested</p></div>
+        <div><span className="eyebrow">TRANSFER MARKET</span><h3>Long-term transfer ideas</h3><p>Ranked by projected points across the next {horizon} gameweeks — not just this week · players you already own are never suggested · {freeTransfers} free transfer{freeTransfers === 1 ? '' : 's'} banked</p></div>
         <div className="pane-controls">
           <div className="segmented" role="group" aria-label="Projection horizon">
             {([5, 8, 10, 12] as const).map((value) => <button key={value} className={horizon === value ? 'active' : ''} onClick={() => setHorizon(value)}>{value} GW</button>)}
@@ -101,6 +103,7 @@ export function TransfersPane({ squad, market, weights, bank, defaultHorizon, mi
             </div>
             <div className="tr-meta">
               <span className={`tr-gain ${idea.gain >= 0 ? 'positive' : 'negative'}`}>{idea.gain >= 0 ? '+' : ''}{idea.gain.toFixed(1)}<small> xPts</small></span>
+              {idea.hit > 0 && <span className="tr-hit">-{idea.hit} hit</span>}
               <span className="tr-cost">{idea.cost === 0 ? 'Free' : `${idea.cost > 0 ? '-' : '+'}${money(Math.abs(idea.cost))}`}</span>
               <button className="tr-apply" onClick={() => onApply(idea.outgoing.id, idea.incoming.id)}>Apply</button>
             </div>
@@ -118,7 +121,7 @@ export function TransfersPane({ squad, market, weights, bank, defaultHorizon, mi
                 <span>{plan.first.outgoing.name} <ArrowLeftRight size={11} /> <b>{plan.first.incoming.name}</b></span>
                 <span>{plan.second.outgoing.name} <ArrowLeftRight size={11} /> <b>{plan.second.incoming.name}</b></span>
               </div>
-              <div className="tr-meta"><span className="tr-gain positive">+{plan.gain.toFixed(1)}<small> xPts</small></span><span className="tr-cost">{money(plan.cost)} spend</span></div>
+              <div className="tr-meta"><span className="tr-gain positive">+{plan.gain.toFixed(1)}<small> xPts</small></span>{plan.hit > 0 && <span className="tr-hit">-{plan.hit} hit</span>}<span className="tr-cost">{money(plan.cost)} spend</span></div>
             </div>
           ))}
         </div>
