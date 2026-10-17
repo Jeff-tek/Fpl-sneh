@@ -328,13 +328,35 @@ export function LivePanel({
   gameweek: number
   onToggle: () => void
 }) {
-  const multiplier = (id: number) => picks.length ? (picks.find((pick) => pick.element === id)?.multiplier ?? 1) : (id === captainId ? 2 : 1)
-  const starterIds = picks.length
-    ? new Set(picks.filter((pick) => pick.position <= 11).map((pick) => pick.element))
-    : new Set(squad.filter((player) => player.isStarter).map((player) => player.id))
-  const pointsOf = (player: Player) => liveStats[player.id]?.total_points ?? player.livePoints ?? 0
-  const total = squad.reduce((sum, player) => sum + (starterIds.has(player.id) ? pointsOf(player) * multiplier(player.id) : 0), 0)
-  const ranked = [...squad].sort((a, b) => pointsOf(b) - pointsOf(a))
+  const official = picks.length > 0
+  const statsOf = (player: Player) => liveStats[player.id]
+  const pointsOf = (player: Player) => statsOf(player)?.total_points ?? player.livePoints ?? 0
+
+  const entries = squad.map((player, index) => {
+    const pick = picks.find((item) => item.element === player.id)
+    return {
+      player,
+      starter: official ? (pick?.position ?? 99) <= 11 : Boolean(player.isStarter),
+      rank: official ? pick?.position ?? 99 : index,
+      multiplier: official ? pick?.multiplier ?? 1 : (player.id === captainId ? 2 : 1),
+    }
+  })
+  const starters = entries.filter((entry) => entry.starter).sort((a, b) => a.rank - b.rank)
+  const bench = entries.filter((entry) => !entry.starter).sort((a, b) => a.rank - b.rank)
+  const total = starters.reduce((sum, entry) => sum + pointsOf(entry.player) * entry.multiplier, 0)
+  const benchTotal = bench.reduce((sum, entry) => sum + pointsOf(entry.player), 0)
+
+  const renderRow = (entry: { player: Player; multiplier: number }, onBench: boolean) => {
+    const stats = statsOf(entry.player)
+    const detail = [entry.player.clubCode, entry.player.position, `${stats?.minutes ?? 0}′`, `${stats?.goals_scored ?? 0}G ${stats?.assists ?? 0}A`, `${stats?.bonus ?? 0} bns`].join('  ·  ')
+    return (
+      <div className={`live-row ${onBench ? 'bench-row' : ''}`} key={entry.player.id}>
+        <span className={`live-mult ${entry.multiplier > 1 ? 'armband' : ''}`}>{entry.multiplier > 1 ? `×${entry.multiplier}` : ''}</span>
+        <span className="live-name"><b>{entry.player.name}</b><small>{detail}</small></span>
+        <span className="live-pts">{pointsOf(entry.player) * entry.multiplier}</span>
+      </div>
+    )
+  }
 
   return (
     <section className="live-panel">
@@ -354,23 +376,12 @@ export function LivePanel({
           <span className="match-team"><em>{liveFixture.awayScore}</em><b>{liveFixture.away}</b></span>
         </div>
       ) : <div className="match-strip"><span className="empty-live">No matches currently in progress</span></div>}
-      <div className="live-table">
-        {ranked.map((player) => {
-          const live = liveStats[player.id]
-          const isStarter = starterIds.has(player.id)
-          const mult = multiplier(player.id)
-          return (
-            <div className={`live-row ${isStarter ? '' : 'benched'}`} key={player.id}>
-              <span className={`live-mult ${mult > 1 ? 'armband' : ''}`}>{mult > 1 ? `×${mult}` : ''}</span>
-              <span className="live-name"><b>{player.name}</b><small>{player.clubCode} · {player.position}</small></span>
-              <span className="live-stat">{live?.minutes ?? 0}′</span>
-              <span className="live-stat">{(live?.goals_scored ?? 0)}G {(live?.assists ?? 0)}A</span>
-              <span className="live-stat">{live?.bonus ?? 0}<small> bns</small></span>
-              <span className="live-pts">{pointsOf(player) * mult}</span>
-            </div>
-          )
-        })}
-      </div>
+
+      <div className="live-section-head"><span>STARTING XI</span><em>{official ? 'official picks' : 'model XI'}</em></div>
+      <div className="live-table">{starters.map((entry) => renderRow(entry, false))}</div>
+
+      <div className="live-section-head bench"><span>BENCH</span><em>{benchTotal} pts on the bench</em></div>
+      <div className="live-table bench-table">{bench.map((entry) => renderRow(entry, true))}</div>
     </section>
   )
 }

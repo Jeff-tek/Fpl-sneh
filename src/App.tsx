@@ -331,11 +331,6 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#top" aria-label="FPL sneh home"><span className="brand-mark">s.</span><span>fpl<span className="brand-light">sneh</span></span></a>
-        <div className="side-label">WORKSPACE</div>
-        <button className={`side-link ${activePane === 'squad' ? 'active' : ''}`} onClick={() => setActivePane('squad')}><BarChart3 size={17} /><span>Squad overview</span>{activePane === 'squad' && <span className="side-dot" />}</button>
-        <button className={`side-link ${activePane === 'moves' ? 'active' : ''}`} onClick={() => setActivePane('moves')}><ArrowLeftRight size={17} /><span>Transfer room</span>{activePane === 'moves' && <span className="side-dot" />}</button>
-        <button className={`side-link ${activePane === 'fixtures' ? 'active' : ''}`} onClick={() => setActivePane('fixtures')}><Clock3 size={17} /><span>Fixture ticker</span>{activePane === 'fixtures' && <span className="side-dot" />}</button>
-        <button className={`side-link ${activePane === 'chips' ? 'active' : ''}`} onClick={() => setActivePane('chips')}><Sparkles size={17} /><span>Chip strategy</span>{activePane === 'chips' && <span className="side-dot" />}</button>
         <div className="side-spacer" />
         <div className="side-week"><span className="eyebrow">NEXT DEADLINE</span><strong>{deadline.date}</strong><span className="side-countdown"><span className="live-pulse" /> {deadline.countdown}</span></div>
         <button className="side-link" onClick={() => setModal('settings')}><Settings2 size={17} /><span>Model settings</span></button>

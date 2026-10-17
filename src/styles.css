@@ -407,3 +407,245 @@ h1 { color: #1d2d25; font: 600 29px/1.15 var(--display); letter-spacing: 0; }
   .history-row { grid-template-columns: 40px 54px 1fr; }
   .history-bench { display: none; }
 }
+
+/* ------------------------------------------------------------------ *
+ * READABILITY PASS
+ * A deliberate override layer that sits last in the cascade: every rule
+ * below raises type size and text contrast so names and numbers are
+ * comfortable to read. Keep it last (or move edits into the source rules).
+ * ------------------------------------------------------------------ */
+:root { --muted: #6c7a71; }
+
+/* --- chrome, sidebar, top bar --- */
+.side-label { color: #9ab2a4; font-size: 10px; }
+.side-link { font-size: 13px; }
+.side-week .eyebrow { color: #9cb4a6; font-size: 9px; }
+.side-week strong { font-size: 17px; }
+.side-countdown { color: #c2d4c7; font-size: 11px; }
+.avatar { font-size: 11px; }
+.sidebar-foot b { font-size: 11px; }
+.sidebar-foot small { color: #a8bcae; font-size: 10px; }
+.crumb { color: #76837a; font-size: 11px; }
+.crumb b { color: #414f46; }
+.api-status { color: #56655a; font-size: 10px; }
+.heading-kicker { color: #6f7d73; font-size: 9px; }
+.page-heading p { color: #6b796f; font-size: 12px; }
+.week-tag { color: #55645a; font-size: 10px; }
+.deadline-button { color: #71806f; font-size: 11px; }
+.manager-identity strong { color: #26361f; font-size: 13px; }
+.manager-identity small { color: #6f7d74; font-size: 10px; }
+.rank-copy b { color: #526457; font-size: 10px; }
+.manager-search { color: #6f7d74; }
+.manager-search input { font-size: 11px; }
+.manager-search button { font-size: 10px; }
+.demo-pick { color: #526156; font-size: 10px; }
+.demo-menu button { font-size: 11px; }
+.demo-menu small { color: #6f7d74; font-size: 10px; }
+
+/* --- metric cards --- */
+.metric-top { color: #6f7d74; font-size: 10px; }
+.primary-metric .metric-top { color: #cfe0cd; }
+.metric-value small { color: #77857b; font-size: 12px; }
+.metric-foot { color: #77857b; font-size: 10px; }
+.metric-foot b { color: #3f5045; }
+.metric-trend { font-size: 10px; }
+
+/* --- section headings + actions --- */
+.section-title-line h2 { font-size: 17px; }
+.section-head p { color: #74827a; font-size: 10px; }
+.plain-action { color: #5f6f64; font-size: 10px; }
+.live-label { font-size: 9px; }
+
+/* --- pitch --- */
+.shirt { font-size: 10px; }
+.shirt i { font-size: 10px; }
+.player-name-tag { max-width: 96px; color: #16281d; font-size: 10px; font-weight: 700; }
+.player-points-tag { font-size: 10px; }
+.player-points-tag small { font-size: 9px; }
+.player-fdr { font-size: 9px; }
+.pitch-caption { color: #e8f1e5e0; font-size: 8px; }
+.strip-label { color: #74827a; font-size: 9px; }
+.formation-pill { color: #5f6f64; font-size: 9px; }
+
+/* --- bench (squad view) --- */
+.bench-heading b { color: #26361f; font-size: 11px; }
+.bench-heading small { color: #6f7d74; font-size: 10px; }
+.bench-index { color: #8b9a76; font-size: 10px; }
+.text-button { color: #55645a; font-size: 10px; }
+.bench-number { color: #77857b; font-size: 10px; }
+.mini-jersey { font-size: 8px; }
+.bench-name b { color: #2f413a; font-size: 11px; }
+.bench-name small { color: #6f7d74; font-size: 9px; }
+.bench-points { color: #33453a; font-size: 12px; }
+.bench-points small { color: #6f7d74; font-size: 9px; }
+.fixture-badge { font-size: 8px; }
+
+/* --- captain + live insight panels --- */
+.panel-head { color: #55645a; font-size: 10px; }
+.captain-copy b { color: #2b3d31; font-size: 12px; }
+.captain-copy small { color: #69776d; font-size: 10px; }
+.captain-score small { color: #6f7d74; font-size: 10px; }
+.captain-reason { color: #55645a; font-size: 10px; }
+.vice-row { color: #4f5e54; font-size: 10px; }
+.vice-label { color: #74827a; font-size: 9px; }
+.vice-row b { color: #38493e; font-size: 10px; }
+.vice-row > span:last-child { color: #587352; font-size: 10px; }
+.live-copy { color: #6f7d74; font-size: 10px; }
+.live-copy b { color: #77857b; font-size: 9px; }
+.tracker-state { font-size: 9px; }
+.match-team { color: #3f5a48; font-size: 11px; }
+.match-time { font-size: 10px; }
+.live-player { color: #4f5e54; font-size: 10px; }
+.live-player > span:nth-last-child(2) { font-size: 10px; }
+.live-player small { color: #6f7d74; font-size: 9px; }
+.empty-live { color: #6f7d74; font-size: 10px; }
+
+/* --- live tracker: starting XI vs bench --- */
+.live-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 14px 0 3px; padding-bottom: 6px; border-bottom: 1px solid #e6eae3; }
+.live-section-head span { color: #4f6155; font: 500 10px var(--mono); letter-spacing: .9px; }
+.live-section-head em { color: #6f7d74; font: normal 10px 'DM Sans', sans-serif; }
+.live-section-head.bench { margin-top: 17px; }
+.live-table { margin-top: 3px; }
+.live-row { grid-template-columns: 27px minmax(0, 1fr) 42px; gap: 8px; padding: 8px 7px; }
+.live-row.bench-row { border-radius: 5px; background: #f6faf0; }
+.live-mult { font-size: 11px; }
+.live-name { gap: 3px; }
+.live-name b { color: #26382c; font-size: 12px; font-weight: 700; }
+.live-name small { color: #66746a; font-size: 10px; }
+.live-pts { color: #3f6b2a; font-size: 14px; }
+
+/* --- transfer pane --- */
+.pane-head h3 { font-size: 17px; }
+.pane-head p { color: #6b796f; font-size: 11px; }
+.pane-toggle { color: #4a5c50; font-size: 10px; }
+.segmented button { min-width: 50px; height: 26px; font-size: 10px; }
+.pane-search, .pane-select { font-size: 11px; }
+.pane-empty { color: #6b796f; font-size: 11px; }
+.pip { padding: 3px 5px; font-size: 9px; }
+.flag-chip { font-size: 8px; }
+.tr-side small { color: #6f7d74; font-size: 9px; }
+.tr-side b { font-size: 14px; }
+.tr-side span { color: #6b796f; font-size: 10px; }
+.tr-side.out b { color: #6a5348; }
+.tr-side.out.flagged b { color: #a8533a; }
+.tr-gain { font-size: 14px; }
+.tr-gain small { font-size: 9px; }
+.tr-cost { color: #66746a; font-size: 10px; }
+.tr-apply { font-size: 10px; }
+.tr-reason { color: #66746a; font-size: 10.5px; }
+.tr-doubles-head b { font-size: 12px; }
+.tr-doubles-head span { color: #6f7d74; font-size: 9px; }
+.tr-double-moves span { color: #66746a; font-size: 11px; }
+.sandbox-head small { color: #6f7d74; font-size: 9px; }
+.select-label, .sandbox-grid .select-label { color: #4f6155; font-size: 10px; }
+.sandbox-grid select { font-size: 11px; }
+.sandbox-summary { color: #66746a; font-size: 10px; }
+.sandbox-summary b { font-size: 12px; }
+
+/* --- fixtures ticker --- */
+.fx-head { color: #6f7d74; font-size: 9px; }
+.fx-club { color: #35473c; font-size: 11px; }
+.fx-cell { min-height: 34px; font-size: 10px; }
+.fx-cell.blank { color: #7c8a80; }
+.fx-opp small { font-size: 8px; opacity: .85; }
+.fx-double-tag { font-size: 8px; }
+.fx-avg { font-size: 10px; }
+.club-dot { width: 10px; height: 10px; }
+
+/* --- chips + health + history --- */
+.chip-gw-badge { color: #55645a; font-size: 10px; }
+.chip-name { color: #2f4134; font-size: 13px; }
+.chip-rec { font-size: 8px; }
+.chip-copy p { color: #66746a; font-size: 10.5px; }
+.chip-status { color: #55645a; font-size: 9px; }
+.health-score span { color: #66746a; font-size: 11px; }
+.health-metrics { color: #55645a; font-size: 10px; }
+.health-notes { color: #55645a; font-size: 10.5px; }
+.club-pill { color: #4a5c50; font-size: 10px; }
+.club-pill em { color: #3f5145; }
+.history-head b { color: #2f4134; font-size: 12px; }
+.history-head small { color: #6f7d74; font-size: 10px; }
+.history-gw { color: #66746a; font-size: 10px; }
+.history-points { font-size: 12px; }
+.history-meta { color: #66746a; font-size: 10px; }
+.history-bench { color: #6f7d74; font-size: 9px; }
+.dashboard-footer { color: #6f7d74; font-size: 9px; }
+.dashboard-footer button { font-size: 9px; }
+
+/* --- modals + player detail --- */
+.modal-header .eyebrow { color: #6f7d74; font-size: 9px; }
+.modal-intro { color: #6b796f; font-size: 12px; }
+.weight-control b { color: #3f5145; font-size: 11px; }
+.weight-control small { color: #6f7d74; font-size: 9px; }
+.weight-control strong { font-size: 11px; }
+.model-note b { font-size: 10px; }
+.model-note small { color: #6f7d74; font-size: 9px; }
+.primary-action, .secondary-action { font-size: 10px; }
+.cost-summary { color: #66746a; font-size: 10px; }
+.cost-summary b { font-size: 11px; }
+.player-detail-head > div b { color: #2f4134; font-size: 12px; }
+.player-detail-head > div small { color: #66746a; font-size: 10px; }
+.player-detail-head > strong small { color: #6f7d74; font-size: 10px; }
+.stat-grid span { color: #6f7d74; font: 8px var(--mono); }
+.stat-grid b { color: #3f5145; font-size: 15px; }
+.detail-section-head b { color: #4f6155; font-size: 11px; }
+.detail-section-head small { color: #6f7d74; font-size: 9px; }
+.detail-fixture span { color: #6f7d74; font: 9px var(--mono); }
+.detail-fixture small { color: #66746a; font-size: 8px; }
+.bank-ribbon b { font-size: 15px; }
+.bank-ribbon small { color: #6f7d74; font-size: 9px; }
+.share-preview span { font-size: 9px; }
+.share-preview strong { font-size: 11px; }
+.toast { font-size: 11px; }
+
+/* keep the tightest layouts from overflowing on small screens */
+@media (max-width: 690px) {
+  .heading-kicker { font-size: 8px; }
+  .metric-top { font-size: 9px; }
+  .metric-foot { font-size: 9px; }
+  .workspace-tab { font-size: 10px; }
+  .player-name-tag { max-width: 70px; font-size: 9px; }
+  .player-points-tag { font-size: 9px; }
+  .dashboard-footer { font-size: 8px; }
+  .pane-head h3 { font-size: 15px; }
+  .tr-side b { font-size: 13px; }
+  .live-name b { font-size: 11px; }
+  .live-name small { font-size: 9px; }
+  .live-pts { font-size: 13px; }
+  .chip-name { font-size: 12px; }
+  .fx-club { font-size: 10px; }
+  .fx-cell { font-size: 9px; }
+}
+@media (max-width: 390px) {
+  .player-name-tag { max-width: 62px; }
+  .live-name small { font-size: 8.5px; }
+  .live-row { grid-template-columns: 22px minmax(0, 1fr) 36px; gap: 6px; }
+}
+
+/* ------------------------------------------------------------------ *
+ * PRIMARY NAVIGATION
+ * The sidebar links were removed, so this is now the single source of
+ * navigation: one prominent, sticky tab bar.
+ * ------------------------------------------------------------------ */
+.workspace-tabs { position: sticky; top: 57px; z-index: 6; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 18px; padding: 8px; border: 1px solid #d9e2d2; border-radius: 11px; background: #fff; box-shadow: 0 6px 20px #1d3d2412; }
+.workspace-tab { min-height: 47px; gap: 9px; border-radius: 8px; color: #55645a; font-size: 13px; font-weight: 600; }
+.workspace-tab svg { width: 17px; height: 17px; color: #6d8a5b; }
+.workspace-tab:hover { color: #214535; background: #f1f6ea; }
+.workspace-tab.active { border-color: transparent; color: #f7f9ec; background: linear-gradient(180deg, #2f6047, #20463a); box-shadow: 0 3px 11px #1d402f30; }
+.workspace-tab.active svg { color: #d7f36a; }
+
+/* sidebar is now just brand + status + settings */
+.sidebar { padding-bottom: 18px; }
+.sidebar .side-spacer { min-height: 40px; }
+.side-week { margin-bottom: 14px; }
+
+@media (max-width: 690px) {
+  .workspace-tabs { top: 43px; gap: 4px; margin-bottom: 13px; padding: 5px; border-radius: 9px; }
+  .workspace-tab { min-height: 39px; gap: 5px; font-size: 11px; border-radius: 6px; }
+  .workspace-tab svg { width: 14px; height: 14px; }
+  .sidebar .side-spacer { min-height: 0; }
+}
+@media (max-width: 390px) {
+  .workspace-tab { gap: 4px; font-size: 10px; }
+  .workspace-tab svg { width: 13px; height: 13px; }
+}
