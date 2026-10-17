@@ -9,6 +9,9 @@ import {
 import { buildFixtureTicker } from './lib/fpl/ticker'
 import { evaluateChips, evaluateSquadHealth } from './lib/fpl/chips'
 import { MAX_FREE_TRANSFERS, deriveFreeTransfers } from './lib/fpl/freeTransfers'
+import { readForm, type FormRead } from './lib/fpl/form'
+import { loadHistories } from './lib/fpl/playerHistory'
+import { teamValueFrom } from './lib/fpl/price'
 import { fixtureTone, money, positionLabels } from './lib/ui'
 import { ChipsPane, FixturesPane, LivePanel, TransfersPane, type SortKey } from './components/panes'
 import './styles.css'
@@ -113,6 +116,36 @@ function App() {
     [panelSquad, bank, bootstrap, gameweek, weights],
   )
   const squadValue = squad.reduce((sum, player) => sum + player.price, 0)
+  const teamValue = useMemo(
+    () => teamValueFrom(history, gameweek, squadValue + bank),
+    [history, gameweek, squadValue, bank],
+  )
+  // Rolling form needs one request per player, so it is loaded in the background
+  // for the squad only and cached for the session. Everything downstream works
+  // without it - the flags simply appear as the histories land.
+  const [formReads, setFormReads] = useState<Record<number, FormRead | undefined>>({})
+  useEffect(() => {
+    if (isDemo || !squad.length) return
+    let disposed = false
+    void loadHistories(squad.map((player) => player.id), (id, history_rows) => {
+      if (disposed) return
+      const player = squad.find((candidate) => candidate.id === id)
+      if (!player) return
+      const read = readForm(history_rows, player.position)
+      setFormReads((current) => ({ ...current, [id]: read ?? undefined }))
+    })
+    return () => { disposed = true }
+  }, [squad, isDemo])
+  const formWatch = useMemo(() => {
+    const flagged: Array<{ player: Player; read: FormRead }> = []
+    for (const player of squad) {
+      const read = formReads[player.id]
+      if (read && read.verdict !== 'level') flagged.push({ player, read })
+    }
+    return flagged
+      .sort((a, b) => Math.abs(b.read.overperformance) - Math.abs(a.read.overperformance))
+      .slice(0, 5)
+  }, [squad, formReads])
   const paneTitle = { squad: 'Squad overview', moves: 'Transfer room', fixtures: 'Fixture ticker', chips: 'Chip strategy' }[activePane]
   const xPts = displayStarters.reduce((sum, player) => sum + expectedPoints(player, weights), 0) + (displayCaptain ? expectedPoints(displayCaptain, weights) : 0)
   // The live total follows the XI we are actually showing, keeping the official
@@ -397,7 +430,7 @@ function App() {
           <section className="metric-grid">
             <article className="metric-card primary-metric"><div className="metric-top"><span>PROJECTED XI</span><Sparkles size={15} /></div><div className="metric-value">{xPts.toFixed(1)}<small> pts</small></div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {activeOfficial ? 'your XI' : 'model'}</span>{formationName(displayFormation)} formation</div><div className="metric-spark"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
             <article className="metric-card"><div className="metric-top"><span>IN THE BANK</span><ArrowLeftRight size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(bank)}</div><div className="metric-foot">{freeTransfers.known ? <>Free transfers <b>{freeTransfers.available}</b> of {MAX_FREE_TRANSFERS}</> : <>Free transfers <b>—</b> · no history yet</>} · {freeTransfers.lastHit > 0 ? `-${freeTransfers.lastHit} last GW` : 'no hits taken'}</div><div className="transfer-meter"><span style={{ width: `${(freeTransfers.available / MAX_FREE_TRANSFERS) * 100}%` }} /></div></article>
-            <article className="metric-card"><div className="metric-top"><span>SQUAD VALUE</span><Gauge size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(squadValue)}</div><div className="metric-foot">Squad health <b className="green-text">{health.grade}</b></div><div className="mini-bars"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
+            <article className="metric-card"><div className="metric-top"><span>TEAM VALUE</span><Gauge size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{money(teamValue.total)}</div><div className="metric-foot">{teamValue.known ? <span className={`metric-trend ${teamValue.gained < 0 ? 'down' : ''}`}>{teamValue.gained >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />} {teamValue.gained >= 0 ? '+' : '−'}{money(Math.abs(teamValue.gained))} since GW1</span> : <>Squad health <b className="green-text">{health.grade}</b></>}</div><div className="mini-bars"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article>
             <article className="metric-card rank-metric"><div className="metric-top"><span>OVERALL RANK</span><Trophy size={15} /></div><div className="metric-value" style={{ fontSize: 24 }}>{rankDisplay}</div><div className="metric-foot"><span className="metric-trend"><ArrowUpRight size={13} /> {isDemo ? 'demo' : 'live'}</span> {entry?.summary_event_points ? `${entry.summary_event_points} pts this GW` : 'season to date'}</div><div className="rank-line"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div></article>
           </section>
 
@@ -424,9 +457,9 @@ function App() {
               <LivePanel starters={displayStarters} bench={displayBench} stats={liveStats} multiplierOf={liveMultiplier} liveFixture={liveFixture} liveFeedLoaded={liveFeedLoaded} liveStatus={liveStatus} gameweek={gameweek} onToggle={() => setLiveStatus(liveStatus === 'live' ? 'paused' : 'live')} />
 
               <section className="planning-panel">
-                {activePane === 'moves' && <TransfersPane squad={squad} market={market} weights={weights} bank={bank} defaultHorizon={TRANSFER_HORIZON} minMinutes={minMinutes} freeTransfers={freeTransfers.available} onApply={applyTransfer} />}
+                {activePane === 'moves' && <TransfersPane squad={squad} market={market} weights={weights} bank={bank} defaultHorizon={TRANSFER_HORIZON} minMinutes={minMinutes} freeTransfers={freeTransfers.available} currentGW={gameweek} formReads={formReads} onApply={applyTransfer} />}
                 {activePane === 'fixtures' && <FixturesPane rows={tickerRows} ownedClubs={ownedClubs} lookahead={lookahead} onLookahead={setLookahead} sortBy={sortBy} onSort={setSortBy} />}
-                {activePane === 'chips' && <ChipsPane advices={chipAdvices} health={health} history={history} currentGW={gameweek} bank={bank} />}
+                {activePane === 'chips' && <ChipsPane advices={chipAdvices} health={health} history={history} currentGW={gameweek} bank={bank} formWatch={formWatch} />}
               </section>
             </aside>
           </section>
@@ -496,7 +529,15 @@ function PlayerModal({ player, weights, market, onClose }: { player: Player; wei
   const recent = (history ?? []).slice(-6)
   const peak = Math.max(1, ...recent.map((row) => row.total_points))
   const parts = scoreBreakdown(player, weights).filter((part) => Math.abs(part.value) >= 0.05)
-  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={player.change >= 0 ? 'green-text' : 'red-text'}>{player.change >= 0 ? '+' : ''}{player.change.toFixed(1)} this GW</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{(player.xG90 ?? player.xG).toFixed(2)}</b></div><div><span>xA / 90</span><b>{(player.xA90 ?? player.xA).toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{(player.ictSeason ?? player.ict).toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Why the model rates him</b><small>Per-match xPts contribution</small></div><ul className="model-bits">{parts.map((part) => <li key={part.label}><span>{part.label}</span><b className={part.value < 0 ? 'red-text' : 'green-text'}>{part.value >= 0 ? '+' : ''}{part.value.toFixed(2)}</b></li>)}</ul></div><div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>{recent.length ? `Last ${recent.length} gameweeks · actual points` : 'Actual points · per gameweek'}</small></div>{loading ? <p className="chart-empty">Loading recent returns…</p> : recent.length ? <div className="history-chart">{recent.map((row) => <span key={row.round} style={{ height: `${Math.max(6, (row.total_points / peak) * 100)}%` }} title={`GW${row.round}: ${row.total_points} pts`}><em>{row.total_points}</em><i>GW{row.round}</i></span>)}</div> : <p className="chart-empty">No match data for this player yet.</p>}</div></ModalShell>
+  // Price movement across the same window as the rolling read, straight from the
+  // per-match history, so the number quoted is the number of matches shown.
+  const prices = recent.map((row) => row.value).filter((value): value is number => typeof value === 'number')
+  const priceMove = prices.length > 1 ? Number(((prices[prices.length - 1] - prices[0]) / 10).toFixed(1)) : 0
+  // Rolling form needs real per-match history, so the block simply does not
+  // appear until the summary has landed - and never for a demo squad whose
+  // synthetic id belongs to a different player.
+  const read = readForm(history ?? [], player.position)
+  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={(player.priceChangeStart ?? 0) >= 0 ? 'green-text' : 'red-text'}>{(player.priceChangeStart ?? 0) >= 0 ? '+' : ''}{(player.priceChangeStart ?? 0).toFixed(1)} this season</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{(player.xG90 ?? player.xG).toFixed(2)}</b></div><div><span>xA / 90</span><b>{(player.xA90 ?? player.xA).toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{(player.ictSeason ?? player.ict).toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Why the model rates him</b><small>Per-match xPts contribution</small></div><ul className="model-bits">{parts.map((part) => <li key={part.label}><span>{part.label}</span><b className={part.value < 0 ? 'red-text' : 'green-text'}>{part.value >= 0 ? '+' : ''}{part.value.toFixed(2)}</b></li>)}</ul></div>{read && <div className="history-block"><div className="detail-section-head"><b>Returns vs underlying</b><small>Last {read.games} matches · is the form real?</small></div><div className="form-read"><span className={read.verdict}><b>{read.returns}</b><small>returned</small></span><span><b>{read.xgi.toFixed(1)}</b><small>expected</small></span><span><b>{read.pointsPerGame.toFixed(1)}</b><small>pts / game</small></span><span><b>{read.defconHits}</b><small>DEFCON</small></span></div><p className={`form-read-note ${read.verdict}`}>{read.note}{read.defconHits > 0 ? ` He has cleared the defensive-contribution threshold ${read.defconHits} time${read.defconHits === 1 ? '' : 's'}.` : ''}</p>{priceMove !== 0 && <p className="form-read-price">Now {money(player.price)} · {priceMove > 0 ? '+' : ''}{priceMove.toFixed(1)}m over the same {prices.length} matches</p>}</div>}<div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>{recent.length ? `Last ${recent.length} gameweeks · actual points` : 'Actual points · per gameweek'}</small></div>{loading ? <p className="chart-empty">Loading recent returns…</p> : recent.length ? <div className="history-chart">{recent.map((row) => <span key={row.round} style={{ height: `${Math.max(6, (row.total_points / peak) * 100)}%` }} title={`GW${row.round}: ${row.total_points} pts`}><em>{row.total_points}</em><i>GW{row.round}</i></span>)}</div> : <p className="chart-empty">No match data for this player yet.</p>}</div></ModalShell>
 }
 
 function ShareModal({ onDownload, onCopy, onClose }: { onDownload: () => void; onCopy: () => void; onClose: () => void }) {

@@ -689,3 +689,111 @@ h1 { color: #1d2d25; font: 600 29px/1.15 var(--display); letter-spacing: 0; }
   .model-bits { grid-template-columns: minmax(0, 1fr); }
   .history-chart em { display: none; }
 }
+
+/* ------------------------------------------------------------------ *
+ * Transfer route planner
+ * A sequenced plan across the horizon: real free-transfer banking,
+ * real hit costs, club limits enforced on every step.
+ * ------------------------------------------------------------------ */
+.plan-block { margin: 2px 0 18px; padding: 14px 16px; border: 1px solid #dfe8d6; border-radius: 8px; background: linear-gradient(180deg, #f7fbf1, #fff); }
+.plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.plan-head .eyebrow { display: inline-flex; align-items: center; gap: 6px; color: #5e7a4e; }
+.plan-total { color: #7f8d81; font-size: 10px; }
+.plan-total b { color: #4c8639; font: 700 15px var(--mono); }
+.plan-steps { display: grid; margin: 11px 0 0; padding: 0; list-style: none; }
+.plan-step { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #e9efe1; }
+.plan-step:first-child { border-top: 0; }
+.plan-gw { color: #7d8f75; font: 700 10px var(--mono); }
+.plan-moves { display: flex; flex-wrap: wrap; gap: 5px 16px; min-width: 0; }
+.plan-move { display: inline-flex; align-items: center; gap: 5px; color: #5a6b5e; font-size: 10px; }
+.plan-move svg { color: #aab6a6; }
+.plan-out { color: #8a6a62; }
+.plan-in { color: #2f5439; font-weight: 700; }
+.plan-hit { padding: 1px 4px; border-radius: 2px; color: #b4523f; background: #fbe9e5; font: normal 700 8px var(--mono); }
+.plan-gain { color: #4f8438; font: 700 11px var(--mono); }
+.plan-apply { padding: 5px 10px; border: 1px solid #2d5b43; border-radius: 4px; color: #f6f8ef; background: #2d5b43; font-size: 9px; font-weight: 600; cursor: pointer; }
+.plan-apply:hover { background: #24483a; }
+.plan-foot { margin-top: 11px; padding-top: 9px; border-top: 1px solid #e9efe1; color: #8b978c; font-size: 9px; line-height: 1.55; }
+.plan-foot b { color: #55703f; }
+
+/* ------------------------------------------------------------------ *
+ * Price radar - market movement, not a promise of a price change
+ * ------------------------------------------------------------------ */
+.radar-block { margin: 0 0 18px; padding: 14px 16px; border: 1px solid #e5eae0; border-radius: 8px; background: #fff; }
+.radar-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.radar-head .eyebrow { display: inline-flex; align-items: center; gap: 6px; color: #6b7a6d; }
+.radar-head small { max-width: 62ch; color: #97a19a; font-size: 9px; line-height: 1.5; }
+.radar-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 22px; margin-top: 12px; }
+.radar-col { display: grid; align-content: start; gap: 2px; min-width: 0; }
+.radar-label { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 4px; color: #9aa49c; font: 8px var(--mono); letter-spacing: .6px; }
+.radar-label.up { color: #6f9a4c; }
+.radar-label.down { color: #bf6f5e; }
+.price-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: baseline; gap: 10px; padding: 5px 7px; border-radius: 4px; }
+.price-row:nth-child(even) { background: #fafbf7; }
+.price-row b { overflow: hidden; color: #33463a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.price-row small { color: #98a29b; font: 8px var(--mono); white-space: nowrap; }
+.price-row em { font: 700 10px var(--mono); font-style: normal; white-space: nowrap; }
+.price-row i { color: #a5aea6; font: 8px var(--mono); font-style: normal; white-space: nowrap; }
+.price-row.up em { color: #5f9145; }
+.price-row.down em { color: #c86456; }
+.radar-empty { padding: 6px 7px; color: #a3ada4; font-size: 9px; }
+.radar-risk { margin-top: 13px; padding-top: 10px; border-top: 1px solid #eef0eb; }
+.radar-risk-rows { display: grid; gap: 4px; margin-top: 5px; }
+.radar-risk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: baseline; gap: 12px; padding: 5px 8px; border-radius: 4px; background: #fdf6f4; }
+.radar-risk-row b { overflow: hidden; color: #4d3a34; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.radar-risk-row em { color: #8a6a62; font: 700 10px var(--mono); font-style: normal; white-space: nowrap; }
+.radar-risk-row span { color: #a58d86; font: 8px var(--mono); white-space: nowrap; }
+
+/* ------------------------------------------------------------------ *
+ * Rolling form: returns against expected returns
+ * ------------------------------------------------------------------ */
+.form-chip { display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; padding: 1px 4px; border-radius: 2px; font: 7px var(--mono); vertical-align: middle; }
+.form-chip.over { color: #a9533f; background: #fbe4dd; }
+.form-chip.under { color: #5b7d3f; background: #e8f2da; }
+.form-panel { margin-top: 16px; padding: 16px; border: 1px solid #e7ebe2; border-radius: 8px; background: #fff; }
+.form-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.form-head h4 { margin-top: 5px; color: #2c3f32; font: 600 13px var(--display); }
+.form-head small { color: #97a19a; font: 9px var(--mono); }
+.form-rows { display: grid; gap: 8px; margin-top: 13px; }
+.form-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; grid-template-areas: 'who numbers ppg verdict' 'note note note note'; align-items: center; gap: 7px 16px; padding: 10px 12px; border: 1px solid #eceee6; border-left: 3px solid #dfe4d8; border-radius: 6px; background: #fafbf6; }
+.form-row.over { border-left-color: #e0a08c; }
+.form-row.under { border-left-color: #a4c76a; }
+.form-who { display: grid; grid-area: who; gap: 2px; min-width: 0; }
+.form-who b { overflow: hidden; color: #33463a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.form-who small { color: #98a29b; font: 8px var(--mono); }
+.form-numbers { grid-area: numbers; color: #6d7c70; font-size: 10px; white-space: nowrap; }
+.form-numbers b { color: #2c3f32; font: 700 12px var(--mono); }
+.form-numbers em { margin: 0 4px; color: #a5aea6; font-size: 9px; font-style: normal; }
+.form-ppg { grid-area: ppg; color: #55703f; font: 700 13px var(--mono); white-space: nowrap; }
+.form-ppg small { color: #8b978c; font: 8px 'DM Sans', sans-serif; }
+.form-verdict { display: inline-flex; grid-area: verdict; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 3px; font: 8px var(--mono); white-space: nowrap; }
+.form-verdict.over { color: #a9533f; background: #fbe4dd; }
+.form-verdict.under { color: #527a34; background: #e8f2da; }
+.form-note { grid-area: note; color: #8b978c; font-size: 9px; line-height: 1.55; }
+.form-read { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.form-read > span { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid #e8ede5; border-radius: 4px; background: #fafbf6; }
+.form-read b { color: #2c3f32; font: 700 15px var(--mono); }
+.form-read small { color: #8b978c; font-size: 8px; }
+.form-read .over b { color: #b4523f; }
+.form-read .under b { color: #4f8438; }
+.form-read-note { margin: 10px 0 0; padding: 9px 11px; border-radius: 4px; font-size: 9px; line-height: 1.55; }
+.form-read-note.over { color: #8f5546; background: #fdf3f1; }
+.form-read-note.under { color: #4f6b3a; background: #f4f9ec; }
+.form-read-note.level { color: #7c8a7e; background: #f6f8f4; }
+.form-read-price { margin: 8px 0 0; color: #98a29b; font: 9px var(--mono); }
+.metric-trend.down { color: #c0564a; }
+
+@media (max-width: 930px) {
+  .radar-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
+
+@media (max-width: 690px) {
+  .plan-step { grid-template-columns: 42px minmax(0, 1fr) auto; grid-template-areas: 'gw moves gain' 'gw apply apply'; }
+  .plan-gw { grid-area: gw; }
+  .plan-moves { grid-area: moves; }
+  .plan-gain { grid-area: gain; }
+  .plan-apply { grid-area: apply; justify-self: start; margin-top: 4px; }
+  .form-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'who verdict' 'numbers numbers' 'ppg ppg' 'note note'; }
+  .form-read { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .price-row, .radar-risk-row { gap: 6px; }
+}

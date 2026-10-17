@@ -19,6 +19,13 @@ export type BootstrapElement = {
   total_points: number
   selected_by_percent: string
   cost_change_event: number
+  // Price-change and transfer flow. FPL does not publish the thresholds that
+  // trigger a rise or a fall, so these are used to *rank* pressure rather than
+  // to promise a change.
+  cost_change_start?: number
+  cost_change_start_fall?: number
+  transfers_in_event?: number
+  transfers_out_event?: number
   status: string
   chance_of_playing_next_round: number | null
   news: string
@@ -73,6 +80,8 @@ export type BootstrapStatic = {
   teams: BootstrapTeam[]
   events: BootstrapEvent[]
   chips?: BootstrapChip[]
+  /** Number of managers playing - the denominator for ownership pressure. */
+  total_players?: number
 }
 
 export type Fixture = {
@@ -185,7 +194,10 @@ export function nextGameweek(bootstrap: BootstrapStatic): number {
   return currentGameweek(bootstrap)
 }
 
-function upcomingRuns(fixtures: Fixture[], teamId: number, targetGW: number, teamMap: Map<number, BootstrapTeam>, count = 12): FixtureRun[] {
+function upcomingRuns(fixtures: Fixture[], teamId: number, targetGW: number, teamMap: Map<number, BootstrapTeam>, count = 20): FixtureRun[] {
+  // Twenty fixtures, not twelve: the planner works in gameweeks, and a run of
+  // double gameweeks would exhaust a fixture-counted list before the gameweek
+  // window is covered, silently projecting zero for the weeks it ran out on.
   return fixtures
     .filter((fixture) => fixture.event != null && fixture.event >= targetGW && (fixture.team_h === teamId || fixture.team_a === teamId))
     .sort((a, b) => (a.event as number) - (b.event as number) || a.id - b.id)
@@ -270,6 +282,7 @@ export function playerFromElement(
   fixtures: Fixture[],
   targetGW: number,
   teamGames?: Map<number, number>,
+  totalPlayers = 0,
 ): Player {
   const team = teamMap.get(element.team)
   const runs = upcomingRuns(fixtures, element.team, targetGW, teamMap)
@@ -294,6 +307,10 @@ export function playerFromElement(
   // of a 90-minute player's points - but it stops part-time players being
   // ranked as if they were nailed starters.
   const appearanceShare = teamGameCount > 0 ? clamp(minutes / (teamGameCount * 60), 0, 1) : 1
+  const transfersIn = num(element.transfers_in_event)
+  const transfersOut = num(element.transfers_out_event)
+  const netTransfers = transfersIn - transfersOut
+  const owners = totalPlayers > 0 ? (num(element.selected_by_percent) / 100) * totalPlayers : 0
   return {
     id: element.id,
     name: element.web_name,
@@ -315,6 +332,11 @@ export function playerFromElement(
     points: element.total_points || 0,
     selectedBy: num(element.selected_by_percent),
     change: (element.cost_change_event || 0) / 10,
+    priceChangeStart: num(element.cost_change_start) / 10,
+    transfersIn,
+    transfersOut,
+    netTransfers,
+    ownershipPressure: owners > 0 ? (netTransfers / owners) * 100 : 0,
     fdr: runs.length ? runs.map((run) => run.difficulty) : [3, 3, 3, 3, 3],
     home: runs[0]?.isHome ?? false,
     upcoming: runs,
@@ -341,7 +363,7 @@ export function buildMarket(bootstrap: BootstrapStatic, fixtures: Fixture[], tar
     teamGames.set(fixture.team_h, (teamGames.get(fixture.team_h) || 0) + 1)
     teamGames.set(fixture.team_a, (teamGames.get(fixture.team_a) || 0) + 1)
   }
-  return (bootstrap.elements || []).map((element) => playerFromElement(element, teamMap, fixtures, targetGW, teamGames))
+  return (bootstrap.elements || []).map((element) => playerFromElement(element, teamMap, fixtures, targetGW, teamGames, bootstrap.total_players || 0))
 }
 
 /** Maps the manager's picks onto the real market universe. */
@@ -378,6 +400,26 @@ export type ElementSummary = {
     total_points: number
     minutes: number
     was_home: boolean
+    opponent_team?: number
+    goals_scored?: number
+    assists?: number
+    clean_sheets?: number
+    goals_conceded?: number
+    bonus?: number
+    bps?: number
+    starts?: number
+    expected_goals?: string | number
+    expected_assists?: string | number
+    expected_goal_involvements?: string | number
+    /** Price at that gameweek, in tenths of a million. */
+    value?: number
+    /**
+     * Raw CBIT count (clearances + blocks + interceptions + tackles, plus
+     * recoveries for midfielders and forwards) - NOT the awarded points. The
+     * two bonus points land when a defender reaches 10 or a midfielder or
+     * forward reaches 12, so the threshold is applied on read.
+     */
+    defensive_contribution?: number
   }>
 }
 

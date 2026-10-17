@@ -38,6 +38,18 @@ export type Player = {
   points: number
   selectedBy: number
   change: number
+  /** Price change since the start of the season, in millions. */
+  priceChangeStart?: number
+  transfersIn?: number
+  transfersOut?: number
+  /** Net transfers this gameweek (in minus out). */
+  netTransfers?: number
+  /**
+   * Net transfers as a percentage of current owners. FPL's rise/fall threshold
+   * scales with ownership, so this is the closest thing the public API offers to
+   * a price-change signal - it ranks pressure, it does not predict a change.
+   */
+  ownershipPressure?: number
   fdr: number[]
   home: boolean
   upcoming?: FixtureRun[]
@@ -155,6 +167,28 @@ export function horizonPoints(player: Player, weights: Weights, horizon = 5): nu
   return runs.reduce((sum, run) => sum + Math.max(0.2, base * fixtureFactor(run.difficulty, run.isHome)), 0)
 }
 
+/**
+ * Projected points across every fixture scheduled in the gameweek window
+ * [fromGW, toGW] - gameweek *indexed*, not fixture-counted like `horizonPoints`.
+ *
+ * The distinction matters to the planner: a double gameweek is worth two
+ * fixtures, and a blank gameweek is worth nothing. Slicing the fixture list
+ * would silently skip blanks and under-count doubles.
+ */
+export function pointsInWindow(player: Player, weights: Weights, fromGW: number, toGW: number): number {
+  const base = baseScore(player, weights)
+  const runs = (player.upcoming ?? []).filter((run) => run.gw >= fromGW && run.gw <= toGW)
+  if (runs.length) return runs.reduce((sum, run) => sum + Math.max(0.2, base * fixtureFactor(run.difficulty, run.isHome)), 0)
+  // No scheduled fixture in the window is a genuine blank for a player we have a
+  // fixture list for - worth nothing. Without any fixture list at all (demo
+  // squads) fall back to the flat difficulty view so the planner still runs.
+  if (!player.upcoming?.length) {
+    const perGame = Math.max(0.2, base * fixtureFactor(player.fdr[0] ?? 3, player.home))
+    return perGame * Math.max(0, toGW - fromGW + 1)
+  }
+  return 0
+}
+
 export function formationName(formation: Formation) {
   return `${formation.def}-${formation.mid}-${formation.fwd}`
 }
@@ -197,10 +231,10 @@ export type TransferIdea = {
   reason: string
 }
 
-const isAvailable = (player: Player) =>
+export const isAvailable = (player: Player) =>
   player.status === undefined || player.status === 'a' || (player.chance ?? 0) >= 75
 
-const isFlagged = (player: Player) =>
+export const isFlagged = (player: Player) =>
   player.status === 'i' || player.status === 'u' || (player.chance ?? 100) < 75
 
 /**

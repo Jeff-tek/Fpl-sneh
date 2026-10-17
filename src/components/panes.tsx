@@ -1,10 +1,16 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { ArrowLeftRight, ArrowRight, Check, Clock3, Info, RotateCcw, ShieldAlert, Sparkles, TrendingUp } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight, Check, Clock3, Coins, Info, RotateCcw, Route, ShieldAlert, Sparkles, TrendingDown, TrendingUp } from 'lucide-react'
 import { getTransferIdeas, horizonPoints, type Player, type Weights } from '../lib/engine'
 import type { ChipAdvice, SquadHealth } from '../lib/fpl/chips'
+import type { FormRead } from '../lib/fpl/form'
+import { planTransfers } from '../lib/fpl/planner'
+import { buildPriceRadar } from '../lib/fpl/price'
 import type { TickerRow } from '../lib/fpl/ticker'
 import type { EntryHistory, LiveElement } from '../lib/fpl/data'
 import { fixtureTone, flagLabel, flagTone, money } from '../lib/ui'
+
+/** Rolling-form verdict read, if we have per-match history for this player. */
+type FormReads = Record<number, FormRead | undefined>
 
 /* ------------------------------------------------------------------ */
 /* Shared bits                                                         */
@@ -31,6 +37,37 @@ function FlagChip({ player }: { player: Player }) {
   return <span className={`flag-chip ${tone}`} title={player.news || 'Availability flag'}>{flagLabel(player)}</span>
 }
 
+/**
+ * Whether a player's recent points are earned or lucky. "Riding luck" means his
+ * returns have outrun his underlying numbers, which is the classic sell-high
+ * window; "due" is the reverse and argues for patience.
+ */
+function FormChip({ read }: { read?: FormRead }) {
+  if (!read || read.verdict === 'level') return null
+  const over = read.verdict === 'over'
+  return (
+    <span className={`form-chip ${read.verdict}`} title={read.note}>
+      {over ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
+      {over ? 'RIDING LUCK' : 'DUE'}
+    </span>
+  )
+}
+
+/** One line of market movement: who, at what price, and how hard the market is moving. */
+function PriceRow({ player }: { player: Player }) {
+  const net = player.netTransfers ?? 0
+  const season = player.priceChangeStart ?? 0
+  const title = `${net > 0 ? '+' : ''}${net.toLocaleString('en-GB')} net transfers this gameweek · ${player.selectedBy.toFixed(1)}% owned · ${money(player.price)}${season ? ` (${season > 0 ? '+' : ''}${season.toFixed(1)} since GW1)` : ''} · net worth ${(player.ownershipPressure ?? 0).toFixed(2)}% of current owners`
+  return (
+    <span className={`price-row ${net >= 0 ? 'up' : 'down'}`} title={title}>
+      <b>{player.name}</b>
+      <small>{player.clubCode} {money(player.price)}{season ? ` ${season > 0 ? '+' : ''}${season.toFixed(1)}` : ''}</small>
+      <em>{net > 0 ? '+' : ''}{net.toLocaleString('en-GB')}</em>
+      <i>{player.selectedBy.toFixed(1)}%</i>
+    </span>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Transfers                                                           */
 /* ------------------------------------------------------------------ */
@@ -44,15 +81,28 @@ type TransfersPaneProps = {
   minMinutes: number
   /** Free transfers banked for the next deadline - makes suggestions hit-aware. */
   freeTransfers: number
+  /** Gameweek the next transfer window belongs to - the planner's first step. */
+  currentGW: number
+  /** Rolling-form verdicts for players we hold per-match history for. */
+  formReads: FormReads
   onApply: (outgoingId: number, incomingId: number) => void
 }
 
-export function TransfersPane({ squad, market, weights, bank, defaultHorizon, minMinutes, freeTransfers, onApply }: TransfersPaneProps) {
+export function TransfersPane({ squad, market, weights, bank, defaultHorizon, minMinutes, freeTransfers, currentGW, formReads, onApply }: TransfersPaneProps) {
   const [sandbox, setSandbox] = useState(false)
   // Transfers are a long-term decision, so the default look-ahead is deliberately
   // wide and the manager can stretch it further.
   const [horizon, setHorizon] = useState(defaultHorizon)
   const ideas = useMemo(() => getTransferIdeas(squad, market, weights, bank, horizon, minMinutes, freeTransfers), [squad, market, weights, bank, horizon, minMinutes, freeTransfers])
+  // A sequenced route through the horizon: real free-transfer accumulation, real
+  // hit costs, and club limits enforced on the squad each move produces.
+  const plan = useMemo(
+    () => planTransfers({ squad, market, weights, bank, freeTransfers, currentGW, horizon, minMinutes }),
+    [squad, market, weights, bank, freeTransfers, currentGW, horizon, minMinutes],
+  )
+  const radar = useMemo(() => buildPriceRadar(market, new Set(squad.map((player) => player.id))), [market, squad])
+  const plannedWeeks = plan.steps.filter((step) => step.moves.length)
+  const firstRoll = plan.steps.find((step) => step.rolled)
   const [sellId, setSellId] = useState<number>(squad[0]?.id ?? 0)
   const sell = squad.find((player) => player.id === sellId) ?? squad[0]
   const owned = useMemo(() => new Set(squad.map((player) => player.id)), [squad])
@@ -83,13 +133,89 @@ export function TransfersPane({ squad, market, weights, bank, defaultHorizon, mi
         </div>
       </div>
 
+      {plannedWeeks.length > 0 && (
+        <div className="plan-block">
+          <div className="plan-head">
+            <span className="eyebrow"><Route size={13} /> ROUTE · NEXT {horizon} GAMEWEEKS</span>
+            <span className="plan-total">
+              <b>+{plan.totalGain.toFixed(1)}</b> xPts from {plan.moves.length} move{plan.moves.length === 1 ? '' : 's'}
+              {plan.totalHits > 0 ? ` · ${plan.totalHits} pts paid in hits` : ' · no hits needed'}
+            </span>
+          </div>
+          <ol className="plan-steps">
+            {plannedWeeks.map((step) => {
+              const weekGain = step.moves.reduce((sum, move) => sum + move.gain, 0)
+              return (
+                <li className="plan-step" key={step.gw}>
+                  <span className="plan-gw">GW{String(step.gw).padStart(2, '0')}</span>
+                  <span className="plan-moves">
+                    {step.moves.map((move) => (
+                      <span className="plan-move" key={`${move.outgoing.id}-${move.incoming.id}`} title={`Projects +${move.gain.toFixed(1)} xPts across the rest of the horizon${move.hit ? ` after a -${move.hit} hit` : ''}`}>
+                        <span className="plan-out">{move.outgoing.name}</span>
+                        <ArrowLeftRight size={10} />
+                        <span className="plan-in">{move.incoming.name}</span>
+                        {move.hit > 0 && <i className="plan-hit">-{move.hit}</i>}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="plan-gain">+{weekGain.toFixed(1)}</span>
+                  {step.gw === plan.fromGw && (
+                    <button className="plan-apply" onClick={() => onApply(step.moves[0].outgoing.id, step.moves[0].incoming.id)}>Apply</button>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+          <div className="plan-foot">
+            {firstRoll ? `Then bank transfers from GW${firstRoll.gw} · ` : ''}
+            ends with <b>{plan.endFreeTransfers}</b> free transfer{plan.endFreeTransfers === 1 ? '' : 's'} and <b>{money(plan.endBank)}</b> in the bank · re-plan each week rather than following this as a script
+          </div>
+        </div>
+      )}
+
+      <div className="radar-block">
+        <div className="radar-head">
+          <span className="eyebrow"><Coins size={13} /> PRICE MOVES · GW{currentGW}</span>
+          <small>Net transfers this gameweek. FPL doesn't publish the thresholds, so this ranks market pressure rather than predicting a change.</small>
+        </div>
+        <div className="radar-grid">
+          <div className="radar-col">
+            <span className="radar-label up"><TrendingUp size={11} /> MOST BOUGHT</span>
+            {radar.rising.length
+              ? radar.rising.map((player) => <PriceRow key={player.id} player={player} />)
+              : <span className="radar-empty">No meaningful buying yet this gameweek</span>}
+          </div>
+          <div className="radar-col">
+            <span className="radar-label down"><TrendingDown size={11} /> MOST SOLD</span>
+            {radar.falling.length
+              ? radar.falling.map((player) => <PriceRow key={player.id} player={player} />)
+              : <span className="radar-empty">No meaningful selling yet this gameweek</span>}
+          </div>
+        </div>
+        {radar.atRisk.length > 0 && (
+          <div className="radar-risk">
+            <span className="radar-label down"><ShieldAlert size={11} /> VALUE AT RISK IN YOUR SQUAD</span>
+            <div className="radar-risk-rows">
+              {radar.atRisk.map((player) => (
+                <span className="radar-risk-row" key={player.id}>
+                  <b>{player.name}</b>
+                  <em>{money(player.price)}</em>
+                  <span>{player.priceChangeStart ? `${player.priceChangeStart > 0 ? '+' : ''}${player.priceChangeStart.toFixed(1)}m since GW1` : 'flat since GW1'}</span>
+                  <span>{(player.netTransfers ?? 0).toLocaleString('en-GB')} net sold</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {ideas.singles.length === 0 && <div className="pane-empty"><Check size={16} /><span>No upgrade clears the threshold this week. Your squad is well set — save the transfer.</span></div>}
 
       <div className="tr-list">
         {ideas.singles.map((idea) => (
           <div className="tr-card" key={`${idea.outgoing.id}-${idea.incoming.id}`}>
             <div className={`tr-side out ${idea.injuryExit ? 'flagged' : ''}`}>
-              <small>SELL {idea.injuryExit && <FlagChip player={idea.outgoing} />}</small>
+              <small>SELL {idea.injuryExit && <FlagChip player={idea.outgoing} />}<FormChip read={formReads[idea.outgoing.id]} /></small>
               <b>{idea.outgoing.name}</b>
               <span>{idea.outgoing.clubCode} · {idea.outgoing.position} · {money(idea.outgoing.sellPrice ?? idea.outgoing.price)}</span>
               <FixturePips player={idea.outgoing} />
@@ -247,13 +373,15 @@ const REC_LABEL: Record<ChipAdvice['recommendation'], string> = {
 }
 
 export function ChipsPane({
-  advices, health, history, currentGW, bank,
+  advices, health, history, currentGW, bank, formWatch,
 }: {
   advices: ChipAdvice[]
   health: SquadHealth
   history: EntryHistory | null
   currentGW: number
   bank: number
+  /** Squad members whose recent returns are out of line with their underlying numbers. */
+  formWatch: Array<{ player: Player; read: FormRead }>
 }) {
   const recent = (history?.current ?? []).slice(-6).reverse()
   return (
@@ -276,6 +404,32 @@ export function ChipsPane({
         ))}
       </div>
 
+      {formWatch.length > 0 && (
+        <div className="form-panel">
+          <div className="form-head">
+            <div><span className="eyebrow">ROLLING FORM · LAST 6</span><h4>Returns versus the underlying numbers</h4></div>
+            <small>{formWatch.length} of your players are out of line</small>
+          </div>
+          <div className="form-rows">
+            {formWatch.map(({ player, read }) => (
+              <div className={`form-row ${read.verdict}`} key={player.id}>
+                <span className="form-who"><b>{player.name}</b><small>{player.clubCode} · {player.position}</small></span>
+                <span className="form-numbers">
+                  <b>{read.returns}</b><small> returns</small>
+                  <em>from</em>
+                  <b>{read.xgi.toFixed(1)}</b><small> xGI</small>
+                </span>
+                <span className="form-ppg">{read.pointsPerGame.toFixed(1)}<small> ppg</small></span>
+                <span className={`form-verdict ${read.verdict}`}>
+                  {read.verdict === 'over' ? <TrendingDown size={11} /> : <TrendingUp size={11} />}
+                  {read.verdict === 'over' ? 'Riding luck — sell high' : 'Underlying says due — hold'}
+                </span>
+                <span className="form-note">{read.note}{read.defconHits > 0 ? ` Cleared the defensive-contribution threshold ${read.defconHits}×.` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="health-panel">
         <div className="health-head">
           <div><span className="eyebrow">SQUAD HEALTH</span><div className="health-score"><b>{health.grade}</b><span>{health.score}/100</span></div></div>
