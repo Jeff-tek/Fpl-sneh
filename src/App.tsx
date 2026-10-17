@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, BarChart3, Check, ChevronDown, CircleHelp, Clipboard, Clock3, Download, ExternalLink, Gauge, LoaderCircle, Menu, RotateCcw, Search, Settings2, Shield, Sparkles, Trophy, Users, X } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, BarChart3, Check, ChevronDown, CircleHelp, Clipboard, Clock3, Download, ExternalLink, Gauge, LoaderCircle, RotateCcw, Search, Settings2, Shield, Sparkles, Trophy, Users, X } from 'lucide-react'
 import { demoSquad, managerNames } from './data/demo'
 import { defaultWeights, expectedPoints, formationName, formations, optimizeSquad, scoreBreakdown, type Formation, type Player, type Weights } from './lib/engine'
 import {
@@ -60,7 +60,10 @@ function App() {
   const [lookahead, setLookahead] = useState(6)
   const [sortBy, setSortBy] = useState<SortKey>('overall')
   const [demoMenu, setDemoMenu] = useState(false)
-  const [preferModelXI, setPreferModelXI] = useState(false)
+  // The model's XI is what this app is for, so it is what you land on. The
+  // official XI stays one click away in the same control; opening on it meant the
+  // headline projection described a team the model had not picked.
+  const [preferModelXI, setPreferModelXI] = useState(true)
   const bootHandled = useRef(false)
 
   const lineup = useMemo(() => optimizeSquad(squad, weights, formation), [squad, weights, formation])
@@ -400,15 +403,13 @@ function App() {
       <aside className="sidebar">
         <a className="brand" href="#top" aria-label="FPL sneh home"><span className="brand-mark">s.</span><span>fpl<span className="brand-light">sneh</span></span></a>
         <div className="side-spacer" />
-        <div className="side-week"><span className="eyebrow">NEXT DEADLINE</span><strong>{deadline.date}</strong><span className="side-countdown"><span className="live-pulse" /> {deadline.countdown}</span></div>
-        <button className="side-link" onClick={() => setModal('settings')}><Settings2 size={17} /><span>Model settings</span></button>
-        <div className="sidebar-foot"><span className="avatar">SP</span><span><b>Sneh Patel</b><small>FPL manager</small></span><button className="icon-button subtle" aria-label="Account options"><Menu size={16} /></button></div>
+        <button className="side-link" onClick={() => setModal('settings')} title="Model settings" aria-label="Model settings"><Settings2 size={19} /></button>
       </aside>
 
       <main className="main-content" id="top">
         <header className="topbar">
           <div className="crumb"><span>Workspace</span><span className="crumb-slash">/</span><b>{paneTitle}</b></div>
-          <div className="top-actions"><span className="api-status"><span className="status-led" /> {bootstrap ? 'Live data' : 'Loading'} · {market.length} players</span><button className="icon-button settings-shortcut" onClick={() => setModal('settings')} aria-label="Open model settings"><Settings2 size={18} /></button></div>
+          <div className="top-actions"><span className="api-status"><span className="status-led" /> {bootstrap ? 'Live data' : 'Loading'} · {market.length} players</span></div>
         </header>
 
         <div className="page-wrap">
@@ -418,7 +419,8 @@ function App() {
 
           <section className="page-heading">
             <div><div className="eyebrow heading-kicker"><span className="kicker-bar" /> THE WEEKLY BRIEF <span className="kicker-divider">·</span> PREMIER LEAGUE 2026/27</div><h1>{paneTitle}<span className="heading-period">.</span></h1><p>A sharper read on your next 90 minutes.</p></div>
-            <div className="week-control"><span className="week-tag"><span className="week-live" /> GAMEWEEK {String(gameweek).padStart(2, '0')}</span><button className="deadline-button"><Clock3 size={15} /> Deadline in <b>{deadline.countdown}</b></button></div>
+            {/* The deadline date used to sit in the sidebar, duplicating this row's countdown. One place now. */}
+            <div className="week-control"><span className="week-tag"><span className="week-live" /> GAMEWEEK {String(gameweek).padStart(2, '0')}</span><span className="deadline-button"><Clock3 size={15} /><span className="deadline-when">Deadline <b>{deadline.date}</b></span><span className="deadline-in">in <b>{deadline.countdown}</b></span></span></div>
           </section>
 
           <section className="manager-bar">
