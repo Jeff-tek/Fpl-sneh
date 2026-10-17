@@ -9,7 +9,12 @@ dns.setDefaultResultOrder('ipv4first')
 const app = express()
 const port = Number(process.env.PORT || 3001)
 const root = path.dirname(fileURLToPath(import.meta.url))
-const snapshotDir = path.join(root, 'snapshots')
+// Serverless deployments (e.g. Vercel) run the bundle from a different directory,
+// so probe a few likely locations for the snapshots folder instead of assuming one.
+const snapshotDir =
+  [path.join(root, 'snapshots'), path.resolve(process.cwd(), 'snapshots')].find((candidate) =>
+    fs.existsSync(candidate)
+  ) || path.join(root, 'snapshots')
 const fplApiBaseUrl = (process.env.FPL_API_BASE_URL || 'https://fantasy.premierleague.com/api').replace(/\/$/, '')
 const cache = new Map<string, { expiresAt: number; body: string; contentType: string }>()
 const cacheTtlMs = 7 * 60 * 1000
@@ -90,7 +95,7 @@ app.use('/api/fpl', async (req, res) => {
   }
 })
 
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   const distDir = path.join(root, 'dist')
   app.use(express.static(distDir, { index: false, fallthrough: true }))
   app.get('*', (req, res) => {
@@ -104,6 +109,12 @@ if (process.env.NODE_ENV === 'production') {
   app.get('/', (_req, res) => res.status(200).send('FPL sneh API server is ready. Run the Vite client on port 5173.'))
 }
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`FPL sneh server listening on http://0.0.0.0:${port}`)
-})
+// The app also runs as a Vercel serverless function (api/[...path].ts), where it
+// must not bind a port, so only listen when we are not on that platform.
+if (!process.env.VERCEL) {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`FPL sneh server listening on http://0.0.0.0:${port}`)
+  })
+}
+
+export default app
