@@ -103,14 +103,14 @@ function App() {
       // bootstrap ships each chip once per half-season; keep only the window we're in
       ? evaluateChips(
           (bootstrap.chips || []).filter((chip) => chip.start_event <= gameweek && chip.stop_event >= gameweek),
-          history?.chips || [], gameweek, fixtures, panelSquad, bootstrap.events || [],
+          history?.chips || [], gameweek, fixtures, panelSquad, bootstrap.events || [], weights,
         )
       : []),
-    [bootstrap, history, gameweek, fixtures, panelSquad],
+    [bootstrap, history, gameweek, fixtures, panelSquad, weights],
   )
   const health = useMemo(
-    () => evaluateSquadHealth(panelSquad, bank, bootstrap?.events || [], gameweek),
-    [panelSquad, bank, bootstrap, gameweek],
+    () => evaluateSquadHealth(panelSquad, bank, bootstrap?.events || [], gameweek, weights),
+    [panelSquad, bank, bootstrap, gameweek, weights],
   )
   const squadValue = squad.reduce((sum, player) => sum + player.price, 0)
   const paneTitle = { squad: 'Squad overview', moves: 'Transfer room', fixtures: 'Fixture ticker', chips: 'Chip strategy' }[activePane]
@@ -436,7 +436,7 @@ function App() {
       </main>
       {notice && <div className="toast"><Check size={15} />{notice}</div>}
       {modal === 'settings' && <SettingsModal weights={weights} onChange={setWeights} onClose={() => setModal(null)} />}
-      {modal === 'editor' && <EditorModal squad={squad} market={market} bank={bank} freeTransfers={freeTransfers.available} onSwap={applyTransfer} onClose={() => setModal(null)} />}
+      {modal === 'editor' && <EditorModal squad={squad} market={market} bank={bank} freeTransfers={freeTransfers.available} weights={weights} onSwap={applyTransfer} onClose={() => setModal(null)} />}
       {modal === 'player' && selectedPlayer && <PlayerModal player={selectedPlayer} weights={weights} market={market} onClose={() => setModal(null)} />}
       {modal === 'share' && <ShareModal onDownload={() => shareLineup(true)} onCopy={() => shareLineup(false)} onClose={() => setModal(null)} />}
     </div>
@@ -451,9 +451,9 @@ function FixtureBadge({ difficulty }: { difficulty: number }) { return <span cla
 
 function SettingsModal({ weights, onChange, onClose }: { weights: Weights; onChange: (weights: Weights) => void; onClose: () => void }) {
   const controls: Array<{ key: keyof Weights; name: string; note: string }> = [
-    { key: 'form', name: 'Recent form', note: 'Last six gameweeks · points per match' },
-    { key: 'xG', name: 'Expected goals', note: 'Underlying goal threat · xG per 90' },
-    { key: 'xA', name: 'Expected assists', note: 'Chance creation · xA per 90' },
+    { key: 'form', name: 'Recent form', note: 'Points per match played · scaled by minutes on the pitch' },
+    { key: 'xG', name: 'Expected goals', note: 'Underlying goal threat · xG per club match' },
+    { key: 'xA', name: 'Expected assists', note: 'Chance creation · xA per club match' },
     { key: 'ict', name: 'ICT index', note: 'Influence, creativity & threat' },
     { key: 'defence', name: 'Clean sheets & saves', note: 'Goalkeeper and defender points · anyone can be dialled down' },
     { key: 'defcon', name: 'Defensive contributions', note: '2 pts for 10+ CBIT (defenders) or 12+ including recoveries' },
@@ -462,12 +462,12 @@ function SettingsModal({ weights, onChange, onClose }: { weights: Weights; onCha
   return <ModalShell title="Model settings" eyebrow="EXPECTED POINTS MODEL" onClose={onClose}><p className="modal-intro">Adjust what the model values. The first four weights are balanced against each other; clean sheets, defensive contributions and bonus are trust multipliers on points the model would otherwise miss.</p><div className="weight-list">{controls.map(({ key, name, note }) => <label className="weight-control" key={key}><span><b>{name}</b><small>{note}</small></span><input type="range" min="0" max="100" step="1" value={Math.round(weights[key] * 100)} onChange={(event) => onChange({ ...weights, [key]: Number(event.target.value) / 100 })} /><strong>{Math.round(weights[key] * 100)}%</strong></label>)}</div><div className="model-note"><Gauge size={16} /><span><b>Fixture context is always on</b><small>FDR adjusts the projection, with a separate home/away modifier. Set a trust multiplier to 0% to ignore that point source entirely.</small></span></div><div className="modal-actions"><button className="secondary-action" onClick={() => onChange(defaultWeights)}><RotateCcw size={14} /> Reset defaults</button><button className="primary-action" onClick={onClose}>Apply model</button></div></ModalShell>
 }
 
-function EditorModal({ squad, market, bank, freeTransfers, onSwap, onClose }: { squad: Player[]; market: Player[]; bank: number; freeTransfers: number; onSwap: (outgoing: number, incoming: number) => void; onClose: () => void }) {
+function EditorModal({ squad, market, bank, freeTransfers, weights, onSwap, onClose }: { squad: Player[]; market: Player[]; bank: number; freeTransfers: number; weights: Weights; onSwap: (outgoing: number, incoming: number) => void; onClose: () => void }) {
   const [outgoingId, setOutgoingId] = useState(squad[0]?.id || 0)
   const outgoing = squad.find((player) => player.id === outgoingId)
   const options = useMemo(() => market
     .filter((player) => player.position === outgoing?.position && !squad.some((owned) => owned.id === player.id))
-    .sort((a, b) => b.form + b.xG * 12 + b.xA * 10 - (a.form + a.xG * 12 + a.xA * 10)), [market, squad, outgoing])
+    .sort((a, b) => expectedPoints(b, weights) - expectedPoints(a, weights)), [market, squad, outgoing, weights])
   const [incomingId, setIncomingId] = useState(options[0]?.id || 0)
   useEffect(() => setIncomingId(options[0]?.id || 0), [outgoingId, options])
   const incoming = options.find((player) => player.id === incomingId)
@@ -496,7 +496,7 @@ function PlayerModal({ player, weights, market, onClose }: { player: Player; wei
   const recent = (history ?? []).slice(-6)
   const peak = Math.max(1, ...recent.map((row) => row.total_points))
   const parts = scoreBreakdown(player, weights).filter((part) => Math.abs(part.value) >= 0.05)
-  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={player.change >= 0 ? 'green-text' : 'red-text'}>{player.change >= 0 ? '+' : ''}{player.change.toFixed(1)} this GW</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{player.xG.toFixed(2)}</b></div><div><span>xA / 90</span><b>{player.xA.toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{player.ict.toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Why the model rates him</b><small>Per-match xPts contribution</small></div><ul className="model-bits">{parts.map((part) => <li key={part.label}><span>{part.label}</span><b className={part.value < 0 ? 'red-text' : 'green-text'}>{part.value >= 0 ? '+' : ''}{part.value.toFixed(2)}</b></li>)}</ul></div><div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>{recent.length ? `Last ${recent.length} gameweeks · actual points` : 'Actual points · per gameweek'}</small></div>{loading ? <p className="chart-empty">Loading recent returns…</p> : recent.length ? <div className="history-chart">{recent.map((row) => <span key={row.round} style={{ height: `${Math.max(6, (row.total_points / peak) * 100)}%` }} title={`GW${row.round}: ${row.total_points} pts`}><em>{row.total_points}</em><i>GW{row.round}</i></span>)}</div> : <p className="chart-empty">No match data for this player yet.</p>}</div></ModalShell>
+  return <ModalShell title={player.name} eyebrow={`${player.club.toUpperCase()} · ${positionLabels[player.position].toUpperCase()}`} onClose={onClose}><div className="player-detail-head"><span className={`detail-shirt club-${player.clubCode.toLowerCase()}`}>{player.shirt}</span><div><b>{player.club}</b><small>{money(player.price)} <span className={player.change >= 0 ? 'green-text' : 'red-text'}>{player.change >= 0 ? '+' : ''}{player.change.toFixed(1)} this GW</span></small></div><strong>{expectedPoints(player, weights).toFixed(1)}<small> xPts</small></strong></div><div className="stat-grid"><div><span>SEASON POINTS</span><b>{player.points}</b></div><div><span>FORM</span><b>{player.form.toFixed(1)}</b></div><div><span>xG / 90</span><b>{(player.xG90 ?? player.xG).toFixed(2)}</b></div><div><span>xA / 90</span><b>{(player.xA90 ?? player.xA).toFixed(2)}</b></div><div><span>ICT INDEX</span><b>{(player.ictSeason ?? player.ict).toFixed(0)}</b></div><div><span>SELECTED BY</span><b>{player.selectedBy.toFixed(1)}%</b></div></div><div className="detail-section-head"><b>Upcoming fixtures</b><small>Difficulty rating</small></div><div className="detail-fixtures">{(player.upcoming && player.upcoming.length ? player.upcoming.slice(0, 5) : player.fdr.slice(0, 5).map((difficulty, index) => ({ gw: index + 1, opponentCode: 'TBC', isHome: player.home, difficulty }))).map((run) => <div className="detail-fixture" key={run.gw}><span>GW{run.gw}</span><b className={fixtureTone(run.difficulty)}>{run.difficulty}</b><small>{run.opponentCode} {run.isHome ? '(H)' : '(A)'}</small></div>)}</div><div className="history-block"><div className="detail-section-head"><b>Why the model rates him</b><small>Per-match xPts contribution</small></div><ul className="model-bits">{parts.map((part) => <li key={part.label}><span>{part.label}</span><b className={part.value < 0 ? 'red-text' : 'green-text'}>{part.value >= 0 ? '+' : ''}{part.value.toFixed(2)}</b></li>)}</ul></div><div className="history-block"><div className="detail-section-head"><b>Recent form</b><small>{recent.length ? `Last ${recent.length} gameweeks · actual points` : 'Actual points · per gameweek'}</small></div>{loading ? <p className="chart-empty">Loading recent returns…</p> : recent.length ? <div className="history-chart">{recent.map((row) => <span key={row.round} style={{ height: `${Math.max(6, (row.total_points / peak) * 100)}%` }} title={`GW${row.round}: ${row.total_points} pts`}><em>{row.total_points}</em><i>GW{row.round}</i></span>)}</div> : <p className="chart-empty">No match data for this player yet.</p>}</div></ModalShell>
 }
 
 function ShareModal({ onDownload, onCopy, onClose }: { onDownload: () => void; onCopy: () => void; onClose: () => void }) {

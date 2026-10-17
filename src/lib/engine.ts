@@ -18,10 +18,23 @@ export type Player = {
   position: Position
   price: number
   sellPrice?: number
+  /** FPL form: average points per appearance. */
   form: number
+  /** Form scaled by the share of a match the player is actually on the pitch for. */
+  formPerMatch?: number
+  appearanceShare?: number
+  /** Expected goals per club match played. */
   xG: number
+  /** Expected assists per club match played. */
   xA: number
+  /** Expected goals per 90 minutes - display only, not a model input. */
+  xG90?: number
+  /** Expected assists per 90 minutes - display only, not a model input. */
+  xA90?: number
+  /** ICT index per club match played. */
   ict: number
+  /** Raw season ICT index - display only. */
+  ictSeason?: number
   points: number
   selectedBy: number
   change: number
@@ -63,22 +76,28 @@ export const formations: Formation[] = [
   { def: 4, mid: 5, fwd: 1 }, { def: 5, mid: 2, fwd: 3 },
 ]
 
-export const defaultWeights: Weights = { form: 0.35, xG: 0.3, xA: 0.2, ict: 0.15, defence: 0.6, defcon: 0.6, bonus: 0.4 }
+export const defaultWeights: Weights = { form: 0.2, xG: 0.4, xA: 0.25, ict: 0.15, defence: 0.6, defcon: 0.6, bonus: 0.4 }
 
 /**
  * Fixture-independent per-match performance score from the tunable model.
  *
- * The first four weights are normalized against each other and produce an
- * attacking score. `defence`, `defcon` and `bonus` are trust multipliers on
- * terms that already arrive in points units (a clean sheet is worth 4, a
- * defensive contribution 2), so they scale how much weight the model gives to
- * the point sources it would otherwise be blind to - goalkeepers, defenders
- * and defensive midfielders in particular.
+ * The attacking weights are balanced against each other. Underlying rates (xG,
+ * xA, ICT) deliberately outweigh recent form: form is *realised* points, which
+ * are lumpy - one goal swing is five or six points - so over the handful of
+ * matches available early in a season it is far noisier than the smooth
+ * underlying numbers. Trusting the underlying over the returns is the standard
+ * regression read, and it is what stops a part-time player with one good cameo
+ * out-ranking a proven premium.
+ *
+ * `defence`, `defcon` and `bonus` are trust multipliers on terms that already
+ * arrive in points units (a clean sheet is worth 4, a defensive contribution
+ * 2), so they scale how much weight the model gives to the point sources it
+ * would otherwise be blind to - goalkeepers and defenders in particular.
  */
 export function baseScore(player: Player, weights: Weights): number {
   const total = weights.form + weights.xG + weights.xA + weights.ict || 1
   const craft = (
-    player.form * weights.form +
+    (player.formPerMatch ?? player.form) * weights.form +
     player.xG * 12 * weights.xG +
     player.xA * 10 * weights.xA +
     (player.ict / 12) * weights.ict
@@ -109,7 +128,7 @@ export type ScorePart = { label: string; value: number }
 export function scoreBreakdown(player: Player, weights: Weights): ScorePart[] {
   const total = weights.form + weights.xG + weights.xA + weights.ict || 1
   return [
-    { label: 'Recent form', value: (player.form * weights.form) / total },
+    { label: 'Recent form', value: ((player.formPerMatch ?? player.form) * weights.form) / total },
     { label: 'Goal threat', value: (player.xG * 12 * weights.xG) / total },
     { label: 'Creativity', value: (player.xA * 10 * weights.xA) / total },
     { label: 'ICT index', value: ((player.ict / 12) * weights.ict) / total },

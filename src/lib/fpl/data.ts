@@ -230,17 +230,17 @@ export type DefensiveExpectation = {
 /**
  * Per-match expected value of the point sources an attacking model can't see:
  * defensive contributions, clean sheets, goals-conceded deductions, saves and
- * bonus. Everything is divided by *team games played* rather than by the
+ * bonus. Everything is divided by *club matches played* rather than by the
  * player's own minutes, so rotation risk and cameo appearances are priced in
  * automatically (a 20-minute-a-week bench player cannot look like a nailed 90).
  */
-export function defensiveExpectation(element: BootstrapElement, teamGames: number, position: Position): DefensiveExpectation {
-  const games = Math.max(1, teamGames)
+export function defensiveExpectation(element: BootstrapElement, games: number, position: Position): DefensiveExpectation {
+  const played = Math.max(1, games)
   const minutes = num(element.minutes)
   // Share of available minutes actually played - the gate for clean-sheet
   // points, which must not accrue to someone who never gets on the pitch.
-  const playFactor = clamp(minutes / (games * 90), 0, 1)
-  const concededPerGame = num(element.expected_goals_conceded) / games
+  const playFactor = clamp(minutes / (played * 90), 0, 1)
+  const concededPerGame = num(element.expected_goals_conceded) / played
   const keeper = position === 'GK'
   const defender = position === 'DEF'
 
@@ -250,16 +250,16 @@ export function defensiveExpectation(element: BootstrapElement, teamGames: numbe
     : num(element.clearances_blocks_interceptions) + num(element.tackles) + num(element.recoveries)
   // Defensive-contribution and bonus rates are the noisiest inputs we have, so
   // shrink them towards zero until the sample is large enough to trust.
-  const reliability = games / (games + 3)
-  const defconPoints = keeper ? 0 : 2 * poissonAtLeast(defconActions / games, defconThreshold) * reliability
+  const reliability = played / (played + 3)
+  const defconPoints = keeper ? 0 : 2 * poissonAtLeast(defconActions / played, defconThreshold) * reliability
 
   const cleanSheetValue = keeper || defender ? 4 : position === 'MID' ? 1 : 0
   const cleanSheetPoints = cleanSheetValue * Math.exp(-concededPerGame) * playFactor
   const concededPoints = keeper || defender ? -concededPerGame / 2 : 0
-  const savePoints = keeper ? num(element.saves) / games / 3 : 0
+  const savePoints = keeper ? num(element.saves) / played / 3 : 0
   // Bonus is lumpy in small samples, so damp it: one 3-bonus haul should not
   // dominate a projection the way an underlying rate would.
-  const bonusPoints = 0.75 * Math.min(1.2, num(element.bonus) / games) * reliability
+  const bonusPoints = 0.75 * Math.min(1.2, num(element.bonus) / played) * reliability
 
   return { defconPoints, cleanSheetPoints, concededPoints, savePoints, bonusPoints }
 }
@@ -277,14 +277,23 @@ export function playerFromElement(
   const position = positionFromElement(element.element_type)
   const teamGameCount = teamGames?.get(element.team)
     ?? fixtures.filter((fixture) => fixture.finished && (fixture.team_h === element.team || fixture.team_a === element.team)).length
-  const defensive = defensiveExpectation(element, teamGameCount, position)
-  // Season expected stats divided by games played, floored at one game. Raw
-  // per-90 values are unusable here: FPL reports absurd rates for cameo
-  // players (a 3-minute outing can read as 12+ xG/90), which would corrupt
-  // every projection. Clamping keeps the model sane for fringe players.
-  const matches = Math.max(1, minutes / 90)
-  const perGameGoals = clamp(num(element.expected_goals) / matches, 0, 1)
-  const perGameAssists = clamp(num(element.expected_assists) / matches, 0, 0.8)
+  // One denominator for the whole model: matches the club has actually played.
+  // Dividing each rate by the player's *own* minutes instead made cameo
+  // appearances look elite - a 72-minute sample reads as 14.9 ICT and 0.79 xG
+  // per 90, neither of which means anything. Per club match, a fringe player is
+  // priced for the game time he actually gets. Falls back to the player's own
+  // 90s when the fixture list is unavailable, so a missing schedule can never
+  // collapse the denominator to one and inflate a whole season.
+  const games = teamGameCount > 0 ? teamGameCount : Math.max(1, minutes / 90)
+  const per90s = Math.max(1, minutes / 90)
+  const defensive = defensiveExpectation(element, games, position)
+  // FPL's form is points per appearance, so it is scaled by the share of a match
+  // the player is actually on the pitch for. Otherwise a substitute with one
+  // big cameo is projected as if he plays ninety minutes every week. This is
+  // deliberately approximate - a 45-minute player does not score exactly half
+  // of a 90-minute player's points - but it stops part-time players being
+  // ranked as if they were nailed starters.
+  const appearanceShare = teamGameCount > 0 ? clamp(minutes / (teamGameCount * 60), 0, 1) : 1
   return {
     id: element.id,
     name: element.web_name,
@@ -295,9 +304,14 @@ export function playerFromElement(
     position,
     price: element.now_cost / 10,
     form: num(element.form),
-    xG: perGameGoals,
-    xA: perGameAssists,
-    ict: num(element.ict_index),
+    formPerMatch: num(element.form) * appearanceShare,
+    appearanceShare,
+    xG: clamp(num(element.expected_goals) / games, 0, 1),
+    xA: clamp(num(element.expected_assists) / games, 0, 0.8),
+    xG90: clamp(num(element.expected_goals) / per90s, 0, 1.5),
+    xA90: clamp(num(element.expected_assists) / per90s, 0, 1.2),
+    ict: num(element.ict_index) / games,
+    ictSeason: num(element.ict_index),
     points: element.total_points || 0,
     selectedBy: num(element.selected_by_percent),
     change: (element.cost_change_event || 0) / 10,

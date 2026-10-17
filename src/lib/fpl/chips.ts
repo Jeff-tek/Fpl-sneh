@@ -1,4 +1,4 @@
-import type { Player } from '../engine'
+import { defaultWeights, expectedPoints, type Player, type Weights } from '../engine'
 import type { BootstrapChip, BootstrapEvent, EntryHistory, Fixture } from './data'
 
 export type ChipRecommendation = 'USE_THIS_GW' | 'CONSIDER_NOW' | 'SAVE_FOR_LATER' | 'ALREADY_PLAYED'
@@ -65,6 +65,7 @@ export function evaluateChips(
   fixtures: Fixture[],
   squad: Player[],
   _events: BootstrapEvent[],
+  weights: Weights = defaultWeights,
 ): ChipAdvice[] {
   const used = new Set(usedChips.map((chip) => cleanChipName(chip.name)))
   const { doubles, blanks } = scanGameweeks(fixtures, currentGW)
@@ -73,7 +74,7 @@ export function evaluateChips(
 
   const flagged = squad.filter(isFlagged).length
   const bench = squad.filter((player) => player.isStarter === false)
-  const benchXPts = bench.reduce((sum, player) => sum + (player.form + player.xG * 12 + player.xA * 10) / 25, 0)
+  const benchXPts = bench.reduce((sum, player) => sum + expectedPoints(player, weights), 0)
   const premiumCaptain = squad
     .filter((player) => player.price >= 8.5)
     .sort((a, b) => b.form - a.form)[0]
@@ -173,11 +174,11 @@ export function evaluateChips(
   })
 }
 
-export function evaluateSquadHealth(squad: Player[], bank: number, events: BootstrapEvent[], currentGW: number): SquadHealth {
+export function evaluateSquadHealth(squad: Player[], bank: number, events: BootstrapEvent[], currentGW: number, weights: Weights = defaultWeights): SquadHealth {
   const injured = squad.filter((player) => player.status === 'i' || player.status === 'u').length
   const doubtful = squad.filter((player) => player.status === 'd' || (player.chance ?? 100) < 75).length
   const bench = squad.filter((player) => player.isStarter === false)
-  const benchXPts = Number(bench.reduce((sum, player) => sum + (player.form + player.xG * 12 + player.xA * 10) / 25, 0).toFixed(1))
+  const benchXPts = Number(bench.reduce((sum, player) => sum + expectedPoints(player, weights), 0).toFixed(1))
 
   const clubCounts: Record<string, number> = {}
   for (const player of squad) clubCounts[player.clubCode] = (clubCounts[player.clubCode] || 0) + 1
@@ -188,7 +189,7 @@ export function evaluateSquadHealth(squad: Player[], bank: number, events: Boots
   let score = 100
   score -= injured * 12
   score -= doubtful * 5
-  score -= Math.max(0, 3 - benchXPts) * 4
+  score -= Math.max(0, 10 - benchXPts) * 2
   score -= Math.max(0, (clubConcentration[0]?.count || 0) - 3) * 6
   score = Math.max(10, Math.min(100, Math.round(score)))
 
@@ -198,7 +199,7 @@ export function evaluateSquadHealth(squad: Player[], bank: number, events: Boots
   if (injured) notes.push(`${injured} injured player${injured > 1 ? 's' : ''} need attention`)
   if (doubtful) notes.push(`${doubtful} flagged doubt${doubtful > 1 ? 's' : ''} this week`)
   if (clubConcentration[0]?.count >= 3) notes.push(`Heavy ${clubConcentration[0].club} exposure (${clubConcentration[0].count})`)
-  if (benchXPts < 3) notes.push('Bench offers little cover')
+  if (benchXPts < 8) notes.push('Bench offers little cover')
   if (bank > 2) notes.push(`£${bank.toFixed(1)}m sat in the bank`)
   if (!notes.length) notes.push('Squad is in excellent shape for the run ahead')
 
